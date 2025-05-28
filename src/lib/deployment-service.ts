@@ -348,8 +348,9 @@ export function createProxyServer(): Server {
     res.status(404).send("Deployment not found");
   });
 
-  const server = app.listen(80, () => {
-    console.log("Proxy server listening on port 80");
+  const proxyPort = process.env.PROXY_PORT || 3002;
+  const server = app.listen(proxyPort, () => {
+    console.log(`Proxy server listening on port ${proxyPort}`);
   });
 
   return server;

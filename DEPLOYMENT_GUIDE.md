@@ -185,8 +185,8 @@ module.exports = {
   apps: [
     {
       name: 'vercelclone-web',
-      script: 'npm',
-      args: 'start',
+      script: 'node',
+      args: '.next/standalone/server.js',
       cwd: '/var/www/vercelclone',
       env: {
         NODE_ENV: 'production',
@@ -263,7 +263,7 @@ nano /etc/nginx/sites-available/vercelclone
 # Ana uygulama için
 server {
     listen 80;
-    server_name yourdomain.com www.yourdomain.com;
+    server_name pixepix.com www.pixepix.com;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -307,6 +307,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+
+ssl_certificate /etc/letsencrypt/live/pixepix.com/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/pixepix.com/privkey.pem;
 ```
 
 ```bash
@@ -494,8 +497,8 @@ gzip_disable "MSIE [1-6]\.";
 // ecosystem.config.js güncelleme
 {
   name: 'vercelclone-web',
-  script: 'npm',
-  args: 'start',
+  script: 'node',
+  args: '.next/standalone/server.js',
   cwd: '/var/www/vercelclone',
   instances: 'max', // CPU çekirdek sayısı kadar instance
   exec_mode: 'cluster',
