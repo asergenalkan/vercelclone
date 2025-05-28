@@ -1,17 +1,5 @@
 import { buildQueue } from "@/lib/queue/build-queue";
 import { BuildWorker } from "@/lib/build/build-worker";
-import { createServer } from "http";
-import { initSocketServer } from "@/lib/socket/socket-server";
-
-// HTTP server oluştur (Socket.io için)
-const httpServer = createServer();
-const io = initSocketServer(httpServer);
-
-// Socket server'ı başlat
-const SOCKET_PORT = process.env.SOCKET_PORT || 3003;
-httpServer.listen(SOCKET_PORT, () => {
-  console.log(`Socket.io server ${SOCKET_PORT} portunda çalışıyor`);
-});
 
 // Build worker instance
 const buildWorker = new BuildWorker();
@@ -49,14 +37,12 @@ buildQueue.on('completed', (job, result) => {
 process.on("SIGTERM", async () => {
   console.log("SIGTERM sinyali alındı, worker kapatılıyor...");
   await buildQueue.close();
-  httpServer.close();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   console.log("SIGINT sinyali alındı, worker kapatılıyor...");
   await buildQueue.close();
-  httpServer.close();
   process.exit(0);
 });
 
