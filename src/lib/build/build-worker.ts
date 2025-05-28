@@ -497,14 +497,21 @@ module.exports = nextConfig
         
         // Module resolution sorunu için düzeltme
         if (tsconfig.compilerOptions) {
-          if (tsconfig.compilerOptions.module === "NodeNext") {
-            tsconfig.compilerOptions.moduleResolution = "NodeNext";
+          const module = tsconfig.compilerOptions.module;
+          
+          // NodeNext veya nodenext (küçük harf) kontrolü
+          if (module && (module.toLowerCase() === "nodenext" || module === "NodeNext")) {
+            tsconfig.compilerOptions.moduleResolution = module; // Aynı case'i kullan
+            emitBuildLog(deploymentId, `📝 ModuleResolution ${module} olarak ayarlandı.\n`);
           }
           
           // Daha esnek seçenekler ekle
           tsconfig.compilerOptions.skipLibCheck = true;
           tsconfig.compilerOptions.forceConsistentCasingInFileNames = false;
           tsconfig.compilerOptions.strict = false;
+          
+          // Problematik seçenekleri kaldır
+          delete tsconfig.compilerOptions.noEmit;
         }
         
         await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2));
