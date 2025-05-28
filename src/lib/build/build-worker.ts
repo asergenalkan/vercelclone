@@ -356,9 +356,12 @@ module.exports = nextConfig
       }
     }
     
+    emitBuildLog(deploymentId, `Executing build command: ${buildCommand}\n`);
+    
     return new Promise<string>((resolve, reject) => {
       const childProcess = exec(buildCommand, { cwd: projectDir });
       let output = '';
+      let errorOutput = '';
       
       childProcess.stdout?.on('data', (data) => {
         output += data;
@@ -366,6 +369,7 @@ module.exports = nextConfig
       });
       
       childProcess.stderr?.on('data', (data) => {
+        errorOutput += data;
         emitBuildLog(deploymentId, data.toString());
       });
       
@@ -374,8 +378,21 @@ module.exports = nextConfig
           emitBuildLog(deploymentId, "Build işlemi başarıyla tamamlandı.\n");
           resolve(output);
         } else {
-          reject(new Error(`Build failed with code ${code}`));
+          const errorMessage = `Build failed with code ${code}`;
+          const fullError = `${errorMessage}\n\nSTDOUT:\n${output}\n\nSTDERR:\n${errorOutput}`;
+          
+          emitBuildLog(deploymentId, `❌ ${fullError}\n`);
+          console.error(`Build failed for deployment ${deploymentId}:`, fullError);
+          
+          reject(new Error(errorMessage));
         }
+      });
+      
+      childProcess.on('error', (error) => {
+        const errorMessage = `Build process error: ${error.message}`;
+        emitBuildLog(deploymentId, `❌ ${errorMessage}\n`);
+        console.error(`Build process error for deployment ${deploymentId}:`, error);
+        reject(new Error(errorMessage));
       });
     });
   }
