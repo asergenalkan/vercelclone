@@ -489,6 +489,23 @@ module.exports = nextConfig
   private async fixTypeScriptConfig(projectDir: string, deploymentId: string) {
     try {
       const tsconfigPath = path.join(projectDir, "tsconfig.json");
+      const packageJsonPath = path.join(projectDir, "package.json");
+      
+      // Package.json'u ES module için düzelt
+      try {
+        await fs.access(packageJsonPath);
+        const packageContent = await fs.readFile(packageJsonPath, 'utf-8');
+        const packageJson = JSON.parse(packageContent);
+        
+        // ES module support ekle
+        if (!packageJson.type) {
+          packageJson.type = "module";
+          await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
+          emitBuildLog(deploymentId, "📝 Package.json'a ES module support eklendi.\n");
+        }
+      } catch (error) {
+        emitBuildLog(deploymentId, "Package.json düzeltme atlandı.\n");
+      }
       
       try {
         await fs.access(tsconfigPath);
@@ -505,13 +522,22 @@ module.exports = nextConfig
             emitBuildLog(deploymentId, `📝 ModuleResolution ${module} olarak ayarlandı.\n`);
           }
           
+          // ES module compatibility için
+          tsconfig.compilerOptions.target = "ES2022";
+          tsconfig.compilerOptions.module = "ES2022";
+          tsconfig.compilerOptions.moduleResolution = "node";
+          
           // Daha esnek seçenekler ekle
           tsconfig.compilerOptions.skipLibCheck = true;
           tsconfig.compilerOptions.forceConsistentCasingInFileNames = false;
           tsconfig.compilerOptions.strict = false;
+          tsconfig.compilerOptions.allowSyntheticDefaultImports = true;
+          tsconfig.compilerOptions.esModuleInterop = true;
           
           // Problematik seçenekleri kaldır
           delete tsconfig.compilerOptions.noEmit;
+          
+          emitBuildLog(deploymentId, "📝 ES2022 module system'e geçildi.\n");
         }
         
         await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2));
