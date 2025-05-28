@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: vercel-clone-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # Bull Board (Queue monitoring UI) - opsiyonel
+  bull-board:
+    image: deadly0/bull-board
+    container_name: vercel-clone-bull-board
+    ports:
+      - "3002:3000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  redis-data: 

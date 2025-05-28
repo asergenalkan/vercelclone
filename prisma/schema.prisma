@@ -1,0 +1,280 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String       @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  username      String?      @unique
+  bio           String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  
+  // İlişkiler
+  projects      Project[]
+  accounts      Account[]
+  sessions      Session[]
+  teams         TeamMember[]
+  activities    Activity[]
+  apiTokens     ApiToken[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Project {
+  id                String       @id @default(cuid())
+  name              String
+  description       String?
+  framework         String       @default("next")
+  userId            String
+  teamId            String?
+  repoUrl           String?
+  gitProvider       String?      @default("github")
+  gitBranch         String       @default("main")
+  buildCommand      String?
+  outputDirectory   String?
+  installCommand    String?
+  devCommand        String?
+  rootDirectory     String?
+  nodeVersion       String       @default("18")
+  publicRepo        Boolean      @default(false)
+  autoDeployEnabled Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  
+  // İlişkiler
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team              Team?        @relation(fields: [teamId], references: [id])
+  deployments       Deployment[]
+  domains           Domain[]
+  envVariables      EnvVariable[]
+  webhooks          Webhook[]
+  functions         Function[]
+  analytics         Analytics[]
+
+  @@index([userId])
+  @@index([teamId])
+}
+
+model Deployment {
+  id        String    @id @default(cuid())
+  projectId String
+  status    String    @default("PENDING") // PENDING, BUILDING, READY, FAILED, CANCELLED
+  url       String?
+  commit    String?
+  commitMessage String?
+  branch    String?
+  buildLogs String?   @db.Text
+  isPreview Boolean   @default(false)
+  containerId String?
+  port      Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  // İlişkiler
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analytics Analytics[]
+
+  @@index([projectId])
+}
+
+model Domain {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  projectId String
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // İlişkiler
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  avatar      String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  // İlişkiler
+  members     TeamMember[]
+  projects    Project[]
+  invites     TeamInvite[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      String   @default("member") // owner, admin, member
+  joinedAt  DateTime @default(now())
+  
+  // İlişkiler
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, teamId])
+}
+
+model TeamInvite {
+  id        String   @id @default(cuid())
+  teamId    String
+  email     String
+  role      String   @default("member")
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  // İlişkiler
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+model EnvVariable {
+  id          String   @id @default(cuid())
+  projectId   String
+  key         String
+  value       String   @db.Text // Encrypted
+  target      String[] // development, preview, production
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // İlişkiler
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@unique([projectId, key])
+}
+
+model Function {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  runtime     String   // nodejs18, edge
+  entrypoint  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // İlişkiler
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  logs        FunctionLog[]
+}
+
+model FunctionLog {
+  id          String   @id @default(cuid())
+  functionId  String
+  level       String   // info, warn, error
+  message     String   @db.Text
+  timestamp   DateTime @default(now())
+  
+  // İlişkiler
+  function    Function @relation(fields: [functionId], references: [id], onDelete: Cascade)
+}
+
+model Analytics {
+  id             String      @id @default(cuid())
+  projectId      String
+  deploymentId   String?
+  path           String
+  views          Int         @default(0)
+  uniqueVisitors Int         @default(0)
+  avgDuration    Float       @default(0)
+  date           DateTime    @default(now())
+  
+  // İlişkiler
+  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deployment     Deployment? @relation(fields: [deploymentId], references: [id])
+  
+  @@index([projectId, date])
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  userId      String
+  projectId   String?
+  type        String   // deployment, domain_added, env_updated, etc.
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  
+  // İlişkiler
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  projectId   String
+  url         String
+  events      String[] // deployment.created, deployment.ready, etc.
+  secret      String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // İlişkiler
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  token       String    @unique
+  lastUsed    DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  
+  // İlişkiler
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
