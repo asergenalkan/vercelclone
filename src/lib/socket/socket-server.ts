@@ -1,16 +1,23 @@
-import { Server as HTTPServer } from "http";
+import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { buildQueue } from "../queue/build-queue";
 import { db } from "../db";
 
 let io: SocketIOServer | null = null;
 
-export function initSocketServer(httpServer: HTTPServer) {
+// Standalone socket server for PM2
+if (require.main === module) {
+  startSocketServer();
+}
+
+function startSocketServer() {
+  const httpServer = createServer();
+  
   io = new SocketIOServer(httpServer, {
     cors: {
       origin: [
-        "http://localhost:3000", 
-        "http://localhost:3001",
+        "http://localhost:3000",
+        "https://pixepix.com",
         process.env.NEXTAUTH_URL || "http://localhost:3000"
       ],
       methods: ["GET", "POST"],
@@ -19,6 +26,21 @@ export function initSocketServer(httpServer: HTTPServer) {
     path: "/socket.io/",
     transports: ["websocket", "polling"],
   });
+
+  setupSocketHandlers();
+  setupBuildQueueListeners();
+
+  const PORT = process.env.SOCKET_PORT || 3003;
+  
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 Socket.io server running on port ${PORT}`);
+  });
+
+  return io;
+}
+
+function setupSocketHandlers() {
+  if (!io) return;
 
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
@@ -59,8 +81,24 @@ export function initSocketServer(httpServer: HTTPServer) {
       console.log("Client disconnected:", socket.id);
     });
   });
+}
 
-  // Build queue event listeners for real-time updates
+export function initSocketServer(httpServer: any) {
+  io = new SocketIOServer(httpServer, {
+    cors: {
+      origin: [
+        "http://localhost:3000", 
+        "http://localhost:3001",
+        process.env.NEXTAUTH_URL || "http://localhost:3000"
+      ],
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+    path: "/socket.io/",
+    transports: ["websocket", "polling"],
+  });
+
+  setupSocketHandlers();
   setupBuildQueueListeners();
 
   return io;
