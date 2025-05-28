@@ -1,5 +1,3 @@
-'use server';
-
 import Docker from "dockerode";
 import { db } from "./db";
 import httpProxy from "http-proxy-middleware";

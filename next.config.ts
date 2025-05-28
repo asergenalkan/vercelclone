@@ -28,17 +28,15 @@ const nextConfig: NextConfig = {
 
     return config;
   },
-  experimental: {
-    serverComponentsExternalPackages: [
-      'dockerode', 
-      'ssh2', 
-      'docker-modem', 
-      'cpu-features',
-      'bcrypt',
-      '@prisma/client',
-      'prisma'
-    ],
-  },
+  serverExternalPackages: [
+    'dockerode', 
+    'ssh2', 
+    'docker-modem', 
+    'cpu-features',
+    'bcrypt',
+    '@prisma/client',
+    'prisma'
+  ],
 };
 
 export default nextConfig;
