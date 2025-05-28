@@ -95,7 +95,7 @@ Response:
     "id": "clxx...",
     "status": "BUILDING",
     "buildLogs": "Installing dependencies...",
-    "url": "https://project-name-xxx.vercel-clone.app"
+    "url": "https://project-name-xxx.pixepix.com"
   },
   "buildJob": {
     "id": "123",

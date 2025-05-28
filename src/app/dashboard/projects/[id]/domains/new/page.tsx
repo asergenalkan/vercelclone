@@ -143,7 +143,7 @@ export default function NewDomainPage() {
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-gray-400">Değer:</span>
-                  <span>cname.vercel-clone.app</span>
+                  <span>cname.pixepix.com</span>
                 </div>
               </div>
             </div>

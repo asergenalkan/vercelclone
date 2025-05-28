@@ -276,7 +276,7 @@ export default function Home() {
       const robotsTxt = `User-agent: *
 Allow: /
 
-Sitemap: https://demo.vercel-clone.app/sitemap.xml`;
+Sitemap: https://demo.pixepix.com/sitemap.xml`;
       
       await fs.writeFile(path.join(publicDir, "robots.txt"), robotsTxt);
       
@@ -898,7 +898,7 @@ CMD ["npm", "start"]`;
     });
 
     if (deployment) {
-      const url = `https://${deployment.project.name.toLowerCase().replace(/\s+/g, "-")}-${deploymentId.substring(0, 8)}.vercel-clone.app`;
+      const url = `https://${deployment.project.name.toLowerCase().replace(/\s+/g, "-")}-${deploymentId.substring(0, 8)}.pixepix.com`;
       
       await db.deployment.update({
         where: { id: deploymentId },

@@ -98,7 +98,7 @@ export default async function Home() {
               <div className="text-gray-400">To github.com:vercel/vercel-site.git</div>
               <div className="text-gray-400">   21326a9..81663c3 main → main</div>
               <div className="text-green-400 mt-2">✓ Production deployment ready!</div>
-              <div className="text-blue-400">→ https://siteniz.vercel-clone.app</div>
+              <div className="text-blue-400">→ https://siteniz.pixepix.com</div>
             </div>
           </div>
         </div>

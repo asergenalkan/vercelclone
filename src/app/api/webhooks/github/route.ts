@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
               commitMessage,
               branch,
               buildLogs: "Deployment kuyruğa alındı...\n",
-              url: `https://${project.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}.vercel-clone.app`,
+              url: `https://${project.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}.pixepix.com`,
             },
           });
 
