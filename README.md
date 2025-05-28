@@ -98,7 +98,7 @@ npm install
 DATABASE_URL="postgresql://user:password@host:5432/database?sslmode=require"
 
 # NextAuth
-NEXTAUTH_URL="http://localhost:3001"
+NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-secret-key-here"
 
 # GitHub OAuth
@@ -154,15 +154,15 @@ sudo npm run proxy
 1. GitHub'da yeni bir OAuth App oluşturun:
    - Settings > Developer settings > OAuth Apps > New OAuth App
    - Application name: Vercel Clone
-   - Homepage URL: http://localhost:3001
-   - Authorization callback URL: http://localhost:3001/api/auth/callback/github
+   - Homepage URL: http://localhost:3000
+   - Authorization callback URL: http://localhost:3000/api/auth/callback/github
 
 2. Client ID ve Client Secret'ı `.env` dosyanıza ekleyin
 
 ## Kullanım
 
 ### Temel Kullanım
-1. http://localhost:3001 adresine gidin
+1. http://localhost:3000 adresine gidin
 2. Yeni hesap oluşturun veya GitHub ile giriş yapın
 3. Dashboard'dan yeni proje oluşturun veya GitHub'dan import edin
 4. Environment variables ekleyin (Settings > Environment Variables)

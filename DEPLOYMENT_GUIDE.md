@@ -7,7 +7,7 @@
 - **CPU**: 4 vCPU
 - **RAM**: 8GB (16GB önerilir)
 - **Disk**: 100GB SSD
-- **Network**: Açık portlar (80, 443, 3001, 3002, 3003)
+- **Network**: Açık portlar (80, 443, 3000, 3002, 3003)
 
 ## 📋 Kurulum Adımları
 
@@ -50,6 +50,8 @@ docker --version
 ```bash
 # NodeSource repository'sini ekleyin
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
 
 # Node.js'i yükleyin
 apt install -y nodejs
@@ -188,7 +190,7 @@ module.exports = {
       cwd: '/var/www/vercelclone',
       env: {
         NODE_ENV: 'production',
-        PORT: 3001
+        PORT: 3000
       }
     },
     {
@@ -264,7 +266,7 @@ server {
     server_name yourdomain.com www.yourdomain.com;
 
     location / {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -355,7 +357,7 @@ apt install -y ufw
 ufw allow 22/tcp    # SSH
 ufw allow 80/tcp    # HTTP
 ufw allow 443/tcp   # HTTPS
-ufw allow 3001/tcp  # Next.js (isteğe bağlı, Nginx kullanıyorsanız gerek yok)
+ufw allow 3000/tcp  # Next.js (isteğe bağlı, Nginx kullanıyorsanız gerek yok)
 ufw allow 3002/tcp  # Proxy (isteğe bağlı)
 ufw allow 3003/tcp  # Socket.io (isteğe bağlı)
 
@@ -499,7 +501,7 @@ gzip_disable "MSIE [1-6]\.";
   exec_mode: 'cluster',
   env: {
     NODE_ENV: 'production',
-    PORT: 3001
+    PORT: 3000
   }
 }
 ```
