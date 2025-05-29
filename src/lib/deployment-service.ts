@@ -1,6 +1,6 @@
 import Docker from "dockerode";
 import { db } from "./db";
-import httpProxy from "http-proxy-middleware";
+import { createProxyMiddleware } from "http-proxy-middleware";
 import { Server } from "http";
 import express from "express";
 
@@ -99,8 +99,8 @@ export async function startDeploymentContainer(deploymentId: string, imageName: 
 
     // URL oluştur
     const url = deployment.isPreview 
-      ? `https://${deployment.id}.preview.vercelclone.com`
-      : `https://${deployment.project.name}.vercelclone.com`;
+      ? `https://${deployment.id}.preview.pixepix.com`
+      : `https://${deployment.project.name}.pixepix.com`;
 
     // Deployment'ı güncelle
     await db.deployment.update({
@@ -311,13 +311,13 @@ export function createProxyServer(): Server {
     const host = req.hostname;
     
     // Preview deployment check
-    const previewMatch = host.match(/^([a-z0-9]+)\.preview\.vercelclone\.com$/);
+    const previewMatch = host.match(/^([a-z0-9]+)\.preview\.pixepix\.com$/);
     if (previewMatch) {
       const deploymentId = previewMatch[1];
       const port = deploymentPorts.get(deploymentId);
       
       if (port) {
-        return httpProxy.createProxyMiddleware({
+        return createProxyMiddleware({
           target: `http://localhost:${port}`,
           changeOrigin: true,
           ws: true
@@ -337,7 +337,7 @@ export function createProxyServer(): Server {
     });
 
     if (deployment && deployment.port) {
-      return httpProxy.createProxyMiddleware({
+      return createProxyMiddleware({
         target: `http://localhost:${deployment.port}`,
         changeOrigin: true,
         ws: true
