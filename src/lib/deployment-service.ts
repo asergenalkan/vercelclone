@@ -339,8 +339,8 @@ export function createProxyServer(): Server {
     res.status(404).send("Deployment not found");
   });
 
-  const server = app.listen(3002, () => {
-    console.log("Proxy server listening on port 3002");
+  const server = app.listen(3005, () => {
+    console.log("Proxy server listening on port 3005");
   });
 
   return server;

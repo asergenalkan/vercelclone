@@ -10,7 +10,7 @@ module.exports = {
           PORT: 3001
         },
         watch: false,
-        instances: "max",
+        instances: "1",
         exec_mode: 'fork',
         max_memory_restart: '300M'
       },
@@ -20,7 +20,8 @@ module.exports = {
         args: 'run socket',
         cwd: '/var/www/vercelclone',
         env: {
-          NODE_ENV: 'production'
+          NODE_ENV: 'production',
+          SOCKET_URL: 'https://pixepix.com'
         },
         watch: false,
         instances: 1,
@@ -33,7 +34,7 @@ module.exports = {
         cwd: '/var/www/vercelclone',
         env: {
           NODE_ENV: 'production',
-          DEBUG: 'bull,bull:*'
+          SOCKET_URL: 'https://pixepix.com'
         },
         watch: false,
         instances: 1,
@@ -45,7 +46,8 @@ module.exports = {
         args: 'run proxy',
         cwd: '/var/www/vercelclone',
         env: {
-          NODE_ENV: 'production'
+          NODE_ENV: 'production',
+          PORT: 3005
         },
         watch: false,
         instances: 1,

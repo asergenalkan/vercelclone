@@ -25,10 +25,23 @@ export function useDeploymentLogs(deploymentId: string | null) {
   useEffect(() => {
     if (!deploymentId) return;
 
-    console.log(`📡 Socket bağlantısı kuruluyor: http://localhost:3003, deploymentId: ${deploymentId}`);
+    // Protokol ve domain adresini al (http://localhost:3000 veya https://pixepix.com)
+    const getSocketUrl = () => {
+      if (typeof window === 'undefined') return '';
+      
+      // Sunucu ortamına göre socket URL'i ayarla
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      const host = window.location.hostname;
+      
+      // Socket.io sunucusu port 3003'te çalışıyor, ancak nginx proxy ile ana domaine map edilmiş
+      return `${protocol}//${host}`;
+    };
+
+    const socketUrl = getSocketUrl();
+    console.log(`📡 Socket bağlantısı kuruluyor: ${socketUrl}, deploymentId: ${deploymentId}`);
 
     // Socket bağlantısı kur
-    const socketInstance = io("http://localhost:3003", {
+    const socketInstance = io(socketUrl, {
       path: "/socket.io/",
       transports: ["websocket", "polling"],
       autoConnect: true,

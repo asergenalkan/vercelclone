@@ -14,6 +14,39 @@ import { decrypt, isEncrypted } from "../encryption";
 const execAsync = promisify(exec);
 const docker = new Docker();
 
+// Dosya sistemi bazlı log yapılandırması
+const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), "logs");
+const WORKER_ID = process.env.pm_id || Date.now().toString();
+const LOG_FILE_PATH = path.join(LOG_DIR, `worker-${WORKER_ID}.log`);
+
+// Log fonksiyonu
+async function logToFile(message: string, level: 'INFO' | 'ERROR' | 'WARN' = 'INFO') {
+  try {
+    // Dizinin varlığını kontrol et, yoksa oluştur
+    await fs.mkdir(LOG_DIR, { recursive: true });
+    
+    // Log formatını oluştur: [TIMESTAMP] [LEVEL] Message
+    const timestamp = new Date().toISOString();
+    const formattedMessage = `${timestamp} [${level}] ${message}\n`;
+    
+    // Dosyaya ekle (append)
+    await fs.appendFile(LOG_FILE_PATH, formattedMessage);
+    
+    // Konsola da yazdır
+    if (level === 'ERROR') {
+      console.error(formattedMessage.trim());
+    } else if (level === 'WARN') {
+      console.warn(formattedMessage.trim());
+    } else {
+      console.log(formattedMessage.trim());
+    }
+  } catch (err) {
+    // Loglama bile başarısız olduysa sadece konsola yazdır
+    console.error(`Log dosyasına yazılamadı: ${err}`);
+    console.error(message);
+  }
+}
+
 export class BuildWorker {
   private buildsDir: string;
   private currentJobData?: BuildJobData;
@@ -24,12 +57,17 @@ export class BuildWorker {
     
     // Worker socket bağlantısını başlat
     initWorkerSocket();
+    
+    // Worker başlatma logu
+    logToFile(`Build worker başlatıldı. Worker ID: ${WORKER_ID}, Log dosyası: ${LOG_FILE_PATH}`);
+    logToFile(`Build worker başlatıldı ve job'ları bekliyor...`);
   }
 
   private async ensureBuildsDir() {
     try {
       await fs.mkdir(this.buildsDir, { recursive: true });
     } catch (error) {
+      await logToFile(`Build dizini oluşturulamadı: ${error}`, 'ERROR');
       console.error("Build dizini oluşturulamadı:", error);
     }
   }
@@ -41,6 +79,8 @@ export class BuildWorker {
     this.currentJobData = job.data;
     
     try {
+      await logToFile(`Build job başlatıldı: ${job.id} - Deployment: ${deploymentId}`);
+      await logToFile(`Job data: ${JSON.stringify(job.data, null, 2)}`);
       console.log(`🚀 Build işlemi başlatılıyor - Deployment: ${deploymentId}`);
       console.log(`📋 Build parametreleri:`, {
         deploymentId,
@@ -119,6 +159,8 @@ export class BuildWorker {
       // Temizlik
       console.log(`🧹 Temizlik yapılıyor...`);
       await this.cleanup(projectDir);
+      
+      await logToFile(`Build job başarılı: ${job.id} - Deployment: ${deploymentId}`);
 
       return {
         success: true,
@@ -127,7 +169,20 @@ export class BuildWorker {
         url,
       };
     } catch (error) {
+      const errorMessage = error instanceof Error 
+        ? `${error.message}\n${error.stack || ''}` 
+        : String(error);
+      
+      await logToFile(`Build job başarısız: ${job.id} ${errorMessage}`, 'ERROR');
       console.error(`❌ Build hatası (${deploymentId}):`, error);
+      
+      // Socket client'a detaylı hata bilgisi gönder
+      try {
+        emitBuildLog(deploymentId, `\n❌ Hata Detayı: ${errorMessage}\n`, "ERROR");
+      } catch (socketError) {
+        await logToFile(`Socket log gönderilemedi: ${socketError}`, 'ERROR');
+      }
+      
       await this.updateDeploymentStatus(
         deploymentId, 
         "FAILED", 
@@ -135,12 +190,16 @@ export class BuildWorker {
       );
       
       // PR comment güncelle (eğer preview deployment ise)
-      const deployment = await db.deployment.findUnique({
-        where: { id: deploymentId }
-      });
-      
-      if (deployment?.isPreview) {
-        await createDeploymentComment(deploymentId, "failed");
+      try {
+        const deployment = await db.deployment.findUnique({
+          where: { id: deploymentId }
+        });
+        
+        if (deployment?.isPreview) {
+          await createDeploymentComment(deploymentId, "failed");
+        }
+      } catch (commentError) {
+        await logToFile(`PR yorum güncelleme hatası: ${commentError}`, 'ERROR');
       }
       
       throw error;
@@ -166,6 +225,8 @@ export class BuildWorker {
       const { stdout: gitVersion } = await execAsync('git --version');
       emitBuildLog(deploymentId, `📌 ${gitVersion.trim()}\n`);
     } catch (error) {
+      const errorMsg = `Git versiyonu kontrol edilemedi: ${error}`;
+      await logToFile(errorMsg, 'ERROR');
       emitBuildLog(deploymentId, `⚠️ Git bulunamadı veya erişilemiyor\n`);
     }
     
@@ -186,7 +247,9 @@ export class BuildWorker {
       let hasError = false;
       
       childProcess.stdout?.on('data', (data) => {
-        emitBuildLog(deploymentId, data.toString());
+        const message = data.toString();
+        emitBuildLog(deploymentId, message);
+        logToFile(`[Git Clone] ${message.trim()}`);
       });
       
       childProcess.stderr?.on('data', (data) => {
@@ -198,39 +261,67 @@ export class BuildWorker {
             sanitizedData.includes('Receiving objects') || 
             sanitizedData.includes('Resolving deltas')) {
           emitBuildLog(deploymentId, sanitizedData);
+          logToFile(`[Git Clone] ${sanitizedData.trim()}`);
         } else {
           hasError = true;
-          emitBuildLog(deploymentId, `⚠️ ${sanitizedData}`);
+          const errorMsg = `⚠️ ${sanitizedData}`;
+          emitBuildLog(deploymentId, errorMsg);
+          logToFile(`[Git Clone Error] ${sanitizedData.trim()}`, 'WARN');
         }
       });
       
       childProcess.on('close', (code) => {
         if (code === 0) {
-          emitBuildLog(deploymentId, "✅ Repository başarıyla klonlandı.\n");
+          const successMsg = "✅ Repository başarıyla klonlandı.";
+          emitBuildLog(deploymentId, successMsg + "\n");
+          logToFile(successMsg);
           
           // Klonlanan dosyaları listele
           exec('ls -la', { cwd: targetDir }, (err, stdout) => {
             if (!err) {
-              emitBuildLog(deploymentId, `📁 Proje dosyaları:\n${stdout}\n`);
+              const filesMsg = `📁 Proje dosyaları:\n${stdout}\n`;
+              emitBuildLog(deploymentId, filesMsg);
+              logToFile(filesMsg);
+            } else {
+              logToFile(`Dosya listesi alınamadı: ${err}`, 'WARN');
             }
           });
           
           resolve();
         } else {
-          emitBuildLog(deploymentId, `❌ Git clone başarısız (exit code: ${code})\n`);
+          const errorMsg = `❌ Git clone başarısız (exit code: ${code})`;
+          emitBuildLog(deploymentId, errorMsg + "\n");
+          logToFile(errorMsg, 'ERROR');
           reject(new Error(`Git clone failed with code ${code}`));
         }
+      });
+      
+      childProcess.on('error', (error) => {
+        const errorMsg = `Git clone process error: ${error.message}`;
+        logToFile(errorMsg, 'ERROR');
+        emitBuildLog(deploymentId, `❌ ${errorMsg}\n`);
+        reject(error);
       });
     });
   }
 
   private async installDependencies(projectDir: string, customCommand: string | undefined, deploymentId: string) {
     // Package manager'ı algıla
-    const packageManager = await this.detectPackageManager(projectDir);
+    let packageManager;
+    try {
+      packageManager = await this.detectPackageManager(projectDir);
+    } catch (error) {
+      const errorMsg = `Package manager algılanamadı: ${error}`;
+      await logToFile(errorMsg, 'ERROR');
+      emitBuildLog(deploymentId, `⚠️ ${errorMsg}\n`);
+      packageManager = 'npm'; // Fallback olarak npm kullan
+    }
+    
     const command = customCommand || this.getInstallCommand(packageManager);
     
     emitBuildLog(deploymentId, `📦 Package Manager: ${packageManager}\n`);
     emitBuildLog(deploymentId, `🔧 Install komutu: ${command}\n`);
+    logToFile(`Install başlatılıyor: ${command} (package manager: ${packageManager})`);
     
     return new Promise<string>((resolve, reject) => {
       // NODE_ENV production olarak ayarla (Vercel default)
@@ -253,28 +344,51 @@ export class BuildWorker {
         timeout: 300000 // 5 dakika timeout
       });
       let output = '';
+      let errorOutput = '';
       
       childProcess.stdout?.on('data', (data) => {
         output += data;
-        emitBuildLog(deploymentId, data.toString());
+        const message = data.toString();
+        emitBuildLog(deploymentId, message);
+        // Çok fazla log oluşmaması için sadece önemli mesajları dosyaya yaz
+        if (message.includes('added') || message.includes('removed') || message.includes('updated')) {
+          logToFile(`[Install] ${message.trim()}`);
+        }
       });
       
       childProcess.stderr?.on('data', (data) => {
         const message = data.toString();
+        errorOutput += message;
         // npm WARN mesajlarını filtrele
         if (!message.includes('npm WARN deprecated')) {
           emitBuildLog(deploymentId, message);
+          logToFile(`[Install Error] ${message.trim()}`, 'WARN');
         }
       });
       
       childProcess.on('close', (code) => {
         if (code === 0) {
-          emitBuildLog(deploymentId, "✅ Bağımlılıklar başarıyla yüklendi.\n");
+          const successMsg = "✅ Bağımlılıklar başarıyla yüklendi.";
+          emitBuildLog(deploymentId, successMsg + "\n");
+          logToFile(successMsg);
           resolve(output);
         } else {
-          emitBuildLog(deploymentId, `❌ ${packageManager} install başarısız oldu (exit code: ${code})\n`);
+          const errorMsg = `❌ ${packageManager} install başarısız oldu (exit code: ${code})`;
+          emitBuildLog(deploymentId, errorMsg + "\n");
+          if (errorOutput) {
+            emitBuildLog(deploymentId, `📋 Hata detayı:\n${errorOutput}\n`);
+          }
+          logToFile(errorMsg, 'ERROR');
+          logToFile(`Install error detayı: ${errorOutput}`, 'ERROR');
           reject(new Error(`${packageManager} install failed with code ${code}`));
         }
+      });
+      
+      childProcess.on('error', (error) => {
+        const errorMsg = `Installation process error: ${error.message}`;
+        logToFile(errorMsg, 'ERROR');
+        emitBuildLog(deploymentId, `❌ ${errorMsg}\n`);
+        reject(error);
       });
     });
   }
@@ -317,20 +431,43 @@ export class BuildWorker {
   private async buildProject(projectDir: string, framework: string, customCommand: string | undefined, deploymentId: string) {
     try {
       // Environment variables'ı al
-      const envVars = await this.getProjectEnvVariables(deploymentId);
+      let envVars;
+      try {
+        envVars = await this.getProjectEnvVariables(deploymentId);
+        logToFile(`${deploymentId} için environment variables alındı: ${Object.keys(envVars).length} adet`);
+      } catch (envError) {
+        const errorMsg = `Environment variables alınamadı: ${envError}`;
+        await logToFile(errorMsg, 'ERROR');
+        emitBuildLog(deploymentId, `⚠️ ${errorMsg}\n`);
+        envVars = {};
+      }
       
       // Environment dosyası oluştur
       if (Object.keys(envVars).length > 0) {
-        await this.createEnvFile(projectDir, envVars, deploymentId);
+        try {
+          await this.createEnvFile(projectDir, envVars, deploymentId);
+        } catch (envFileError) {
+          const errorMsg = `Environment dosyası oluşturulamadı: ${envFileError}`;
+          await logToFile(errorMsg, 'ERROR');
+          emitBuildLog(deploymentId, `⚠️ ${errorMsg}\n`);
+        }
       }
       
       // Package manager'ı algıla
-      const packageManager = await this.detectPackageManager(projectDir);
+      let packageManager;
+      try {
+        packageManager = await this.detectPackageManager(projectDir);
+      } catch (pmError) {
+        const errorMsg = `Package manager algılanamadı: ${pmError}`;
+        await logToFile(errorMsg, 'ERROR');
+        packageManager = 'npm'; // Fallback olarak npm
+      }
       
       // Build komutu
       const buildCommand = customCommand || this.getDefaultBuildCommand(packageManager, framework);
       
       emitBuildLog(deploymentId, `🔧 Build komutu: ${buildCommand}\n\n`);
+      logToFile(`Build başlatılıyor: ${buildCommand} (framework: ${framework})`);
       
       // Vercel'in yaptığı gibi - Next.js versiyonunu logla
       if (framework === "next") {
@@ -339,10 +476,12 @@ export class BuildWorker {
           const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
           const nextVersion = packageJson.dependencies?.next || packageJson.devDependencies?.next;
           if (nextVersion) {
-            emitBuildLog(deploymentId, `   ▲ Next.js ${nextVersion}\n`);
+            const versionMsg = `   ▲ Next.js ${nextVersion}`;
+            emitBuildLog(deploymentId, versionMsg + "\n");
+            logToFile(versionMsg);
           }
         } catch (error) {
-          // Ignore
+          logToFile(`Next.js versiyonu okunamadı: ${error}`, 'WARN');
         }
       }
       
@@ -374,26 +513,53 @@ export class BuildWorker {
         
         childProcess.stdout?.on('data', (data) => {
           output += data;
-          emitBuildLog(deploymentId, data.toString());
+          const message = data.toString();
+          emitBuildLog(deploymentId, message);
+          // Önemli mesajları dosyaya yaz
+          if (message.includes('Error') || message.includes('Warning') || 
+              message.includes('Built') || message.includes('Compiled') ||
+              message.includes('Failed')) {
+            logToFile(`[Build] ${message.trim()}`);
+          }
         });
         
         childProcess.stderr?.on('data', (data) => {
-          errorOutput += data.toString();
-          emitBuildLog(deploymentId, data.toString());
+          const message = data.toString();
+          errorOutput += message;
+          emitBuildLog(deploymentId, message);
+          logToFile(`[Build Error] ${message.trim()}`, 'WARN');
         });
         
         childProcess.on('close', (code) => {
           if (code === 0) {
-            emitBuildLog(deploymentId, "\n✅ Build işlemi başarıyla tamamlandı!\n");
+            const successMsg = "\n✅ Build işlemi başarıyla tamamlandı!";
+            emitBuildLog(deploymentId, successMsg + "\n");
+            logToFile(successMsg);
             resolve(output);
           } else {
-            emitBuildLog(deploymentId, `\n❌ Build failed with code ${code}\n`);
+            const errorMsg = `\n❌ Build failed with code ${code}`;
+            emitBuildLog(deploymentId, errorMsg + "\n");
+            if (errorOutput) {
+              const detailMsg = `📋 Build Hatası Detayı:\n${errorOutput}`;
+              emitBuildLog(deploymentId, detailMsg + "\n");
+            }
+            logToFile(errorMsg, 'ERROR');
+            logToFile(`Build error detayı: ${errorOutput}`, 'ERROR');
             reject(new Error(`Build failed with code ${code}`));
           }
         });
+        
+        childProcess.on('error', (error) => {
+          const errorMsg = `Build process error: ${error.message}`;
+          logToFile(errorMsg, 'ERROR');
+          emitBuildLog(deploymentId, `❌ ${errorMsg}\n`);
+          reject(error);
+        });
       });
     } catch (error) {
-      console.error(`❌ Build hatası (${deploymentId}):`, error);
+      const errorMsg = `❌ Build hatası (${deploymentId}): ${error}`;
+      await logToFile(errorMsg, 'ERROR');
+      console.error(errorMsg);
       throw error;
     }
   }
@@ -474,81 +640,114 @@ export class BuildWorker {
     framework: string,
     jobData: BuildJobData
   ): Promise<string> {
-    // Dockerfile oluştur
-    const dockerfileContent = this.generateDockerfile(framework, jobData);
-    const dockerfilePath = path.join(projectDir, "Dockerfile.generated");
-    await fs.writeFile(dockerfilePath, dockerfileContent);
-
-    console.log(`📝 Dockerfile oluşturuldu: ${dockerfilePath}`);
-    console.log(`📄 Dockerfile içeriği:\n${dockerfileContent}`);
-
-    // Docker image build et
-    const imageName = `vercel-clone/${deploymentId}:latest`;
-    console.log(`🔨 Docker build başlatılıyor: ${imageName}`);
-    
     try {
-      const stream = await docker.buildImage(
-        {
-          context: projectDir,
-          src: [".", "Dockerfile.generated"],
-        },
-        {
-          t: imageName,
-          dockerfile: "Dockerfile.generated",
-        }
-      );
+      // Dockerfile oluştur
+      const dockerfileContent = this.generateDockerfile(framework, jobData);
+      const dockerfilePath = path.join(projectDir, "Dockerfile.generated");
+      await fs.writeFile(dockerfilePath, dockerfileContent);
 
-      // Build çıktısını takip et ve stream et
-      let buildSuccess = false;
-      let buildError = null;
+      const dockerfileMsg = `📝 Dockerfile oluşturuldu: ${dockerfilePath}`;
+      console.log(dockerfileMsg);
+      await logToFile(dockerfileMsg);
+      await logToFile(`📄 Dockerfile içeriği:\n${dockerfileContent}`);
 
-      await new Promise((resolve, reject) => {
-        docker.modem.followProgress(stream, (err: any, res: any) => {
-          if (err) {
-            console.error(`❌ Docker build hatası:`, err);
-            emitBuildLog(deploymentId, `Docker build hatası: ${err.message}\n`);
-            buildError = err;
-            reject(err);
-          } else {
-            console.log(`✅ Docker build tamamlandı:`, res);
-            buildSuccess = true;
-            emitBuildLog(deploymentId, "Docker image başarıyla oluşturuldu.\n");
-            resolve(res);
-          }
-        }, (event: any) => {
-          // Progress events
-          if (event.stream) {
-            console.log(`🐳 Docker:`, event.stream.trim());
-            emitBuildLog(deploymentId, event.stream);
-          }
-          if (event.error) {
-            console.error(`❌ Docker build error:`, event.error);
-            emitBuildLog(deploymentId, `Docker error: ${event.error}\n`);
-            buildError = event.error;
-          }
-        });
-      });
-
-      // Build başarılı oldu mu kontrol et
-      if (!buildSuccess || buildError) {
-        throw new Error(`Docker build başarısız: ${buildError || 'Bilinmeyen hata'}`);
-      }
-
-      // Image'ın gerçekten oluştuğunu doğrula
+      // Docker image build et
+      const imageName = `vercel-clone/${deploymentId}:latest`;
+      const buildMsg = `🔨 Docker build başlatılıyor: ${imageName}`;
+      console.log(buildMsg);
+      await logToFile(buildMsg);
+      
       try {
-        const imageInfo = await docker.getImage(imageName).inspect();
-        console.log(`✅ Image doğrulandı:`, imageInfo.Id);
-        emitBuildLog(deploymentId, `Image ID: ${imageInfo.Id}\n`);
-      } catch (inspectError) {
-        console.error(`❌ Image doğrulama hatası:`, inspectError);
-        throw new Error(`Docker image oluşturuldu ama doğrulanamadı: ${inspectError}`);
+        const stream = await docker.buildImage(
+          {
+            context: projectDir,
+            src: [".", "Dockerfile.generated"],
+          },
+          {
+            t: imageName,
+            dockerfile: "Dockerfile.generated",
+          }
+        );
+
+        // Build çıktısını takip et ve stream et
+        let buildSuccess = false;
+        let buildError = null;
+
+        await new Promise<void>((resolve, reject) => {
+          docker.modem.followProgress(stream, (err: any, res: any) => {
+            if (err) {
+              const errorMsg = `❌ Docker build hatası: ${err}`;
+              console.error(errorMsg);
+              logToFile(errorMsg, 'ERROR');
+              emitBuildLog(deploymentId, `Docker build hatası: ${err.message}\n`);
+              buildError = err;
+              reject(err);
+            } else {
+              const successMsg = `✅ Docker build tamamlandı`;
+              console.log(successMsg);
+              logToFile(successMsg);
+              buildSuccess = true;
+              emitBuildLog(deploymentId, "Docker image başarıyla oluşturuldu.\n");
+              resolve();
+            }
+          }, (event: any) => {
+            // Progress events
+            if (event.stream) {
+              const message = event.stream.trim();
+              console.log(`🐳 Docker:`, message);
+              
+              if (message) {
+                emitBuildLog(deploymentId, event.stream);
+                // Önemli Docker olaylarını logla
+                if (message.includes('Step') || message.includes('error') || 
+                    message.includes('Successfully built') || message.includes('failed')) {
+                  logToFile(`[Docker] ${message}`);
+                }
+              }
+            }
+            if (event.error) {
+              const errorMsg = `❌ Docker build error: ${event.error}`;
+              console.error(errorMsg);
+              logToFile(errorMsg, 'ERROR');
+              emitBuildLog(deploymentId, `Docker error: ${event.error}\n`);
+              buildError = event.error;
+            }
+          });
+        });
+
+        // Build başarılı oldu mu kontrol et
+        if (!buildSuccess || buildError) {
+          const errorMsg = `Docker build başarısız: ${buildError || 'Bilinmeyen hata'}`;
+          await logToFile(errorMsg, 'ERROR');
+          throw new Error(errorMsg);
+        }
+
+        // Image'ın gerçekten oluştuğunu doğrula
+        try {
+          const imageInfo = await docker.getImage(imageName).inspect();
+          const successMsg = `✅ Image doğrulandı: ${imageInfo.Id}`;
+          console.log(successMsg);
+          await logToFile(successMsg);
+          emitBuildLog(deploymentId, `Image ID: ${imageInfo.Id}\n`);
+        } catch (inspectError) {
+          const errorMsg = `❌ Image doğrulama hatası: ${inspectError}`;
+          console.error(errorMsg);
+          await logToFile(errorMsg, 'ERROR');
+          throw new Error(`Docker image oluşturuldu ama doğrulanamadı: ${inspectError}`);
+        }
+
+        return imageName;
+
+      } catch (error) {
+        const errorMsg = `❌ Docker build işlemi başarısız: ${error}`;
+        console.error(errorMsg);
+        await logToFile(errorMsg, 'ERROR');
+        emitBuildLog(deploymentId, `Docker build başarısız: ${error}\n`);
+        throw error;
       }
-
-      return imageName;
-
     } catch (error) {
-      console.error(`❌ Docker build işlemi başarısız:`, error);
-      emitBuildLog(deploymentId, `Docker build başarısız: ${error}\n`);
+      const errorMsg = `Docker image oluşturma hatası: ${error}`;
+      await logToFile(errorMsg, 'ERROR');
       throw error;
     }
   }
@@ -696,13 +895,15 @@ CMD ["npm", "start"]`;
   }
 
   private async updateDeploymentStatus(deploymentId: string, status: string, buildLogs: string) {
-    // Socket.io ile real-time log gönder
-    console.log(`📤 Socket üzerinden log gönderiliyor: ${deploymentId}, status: ${status}`);
-    emitBuildLog(deploymentId, `${buildLogs}\n`, status);
-    emitDeploymentStatus(deploymentId, status);
-    
-    // Veritabanını güncelle
     try {
+      // Socket.io ile real-time log gönder
+      console.log(`📤 Socket üzerinden log gönderiliyor: ${deploymentId}, status: ${status}`);
+      await logToFile(`Deployment status güncelleniyor: ${deploymentId}, status: ${status}`);
+      
+      emitBuildLog(deploymentId, `${buildLogs}\n`, status);
+      emitDeploymentStatus(deploymentId, status);
+      
+      // Veritabanını güncelle
       await db.deployment.update({
         where: { id: deploymentId },
         data: {
@@ -714,7 +915,10 @@ CMD ["npm", "start"]`;
       });
       console.log(`✅ Deployment veritabanında güncellendi: ${deploymentId}, status: ${status}`);
     } catch (error) {
-      console.error(`❌ Deployment güncelleme hatası: ${error}`);
+      const errorMsg = `❌ Deployment güncelleme hatası: ${error}`;
+      console.error(errorMsg);
+      await logToFile(errorMsg, 'ERROR');
+      // Bu fonksiyon içindeki hata, üst fonksiyona iletilmemeli (kritik değil)
     }
   }
 
