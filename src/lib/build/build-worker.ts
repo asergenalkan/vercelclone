@@ -9,6 +9,7 @@ import { promisify } from "util";
 import { emitBuildLogFromWorker as emitBuildLog, emitDeploymentStatusFromWorker as emitDeploymentStatus, initWorkerSocket } from "../socket/socket-client";
 import { startDeploymentContainer } from "../deployment-service";
 import { createDeploymentComment } from "../github/pr-comments";
+import { decrypt, isEncrypted } from "../encryption";
 
 const execAsync = promisify(exec);
 const docker = new Docker();
@@ -217,143 +218,10 @@ export class BuildWorker {
           resolve();
         } else {
           emitBuildLog(deploymentId, `❌ Git clone başarısız (exit code: ${code})\n`);
-          
-          // Hata sebeplerini analiz et
-          if (hasError) {
-            emitBuildLog(deploymentId, `\n💡 Olası sebepler:\n`);
-            emitBuildLog(deploymentId, `- Repository private olabilir ve erişim yetkisi yoktur\n`);
-            emitBuildLog(deploymentId, `- Branch adı yanlış olabilir\n`);
-            emitBuildLog(deploymentId, `- Repository URL'si hatalı olabilir\n`);
-            emitBuildLog(deploymentId, `- Internet bağlantısı sorunu olabilir\n\n`);
-          }
-          
-          emitBuildLog(deploymentId, `🎯 Demo deployment oluşturuluyor...\n`);
-          
-          // Demo deployment oluştur
-          this.createDemoProject(targetDir, deploymentId).then(resolve).catch(reject);
+          reject(new Error(`Git clone failed with code ${code}`));
         }
       });
     });
-  }
-
-  private async createDemoProject(targetDir: string, deploymentId: string): Promise<void> {
-    try {
-      emitBuildLog(deploymentId, "Demo Next.js projesi oluşturuluyor...\n");
-      
-      // package.json oluştur
-      const packageJson = {
-        name: `demo-deployment-${deploymentId}`,
-        version: "1.0.0",
-        scripts: {
-          dev: "next dev",
-          build: "next build",
-          start: "next start"
-        },
-        dependencies: {
-          next: "^14.0.0",
-          react: "^18.0.0",
-          "react-dom": "^18.0.0"
-        },
-        devDependencies: {
-          "@types/node": "^20.0.0",
-          "@types/react": "^18.0.0",
-          "@types/react-dom": "^18.0.0",
-          typescript: "^5.0.0"
-        }
-      };
-      
-      await fs.writeFile(
-        path.join(targetDir, "package.json"), 
-        JSON.stringify(packageJson, null, 2)
-      );
-      
-      // pages/index.js oluştur
-      const pagesDir = path.join(targetDir, "pages");
-      await fs.mkdir(pagesDir, { recursive: true });
-      
-      const indexPage = `
-export default function Home() {
-  return (
-    <div style={{ 
-      minHeight: '100vh', 
-      display: 'flex', 
-      flexDirection: 'column',
-      alignItems: 'center', 
-      justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      color: 'white',
-      textAlign: 'center',
-      padding: '2rem'
-    }}>
-      <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>
-        🚀 Demo Deployment
-      </h1>
-      <p style={{ fontSize: '1.2rem', marginBottom: '2rem', opacity: 0.9 }}>
-        Bu bir demo deployment'tır. Gerçek projeniz için GitHub repository bağlayın.
-      </p>
-      <div style={{ 
-        background: 'rgba(255,255,255,0.1)', 
-        padding: '1rem', 
-        borderRadius: '8px',
-        backdropFilter: 'blur(10px)'
-      }}>
-        <p style={{ margin: 0, fontSize: '0.9rem' }}>
-          Deployment ID: ${deploymentId}
-        </p>
-        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-          Powered by Vercel Clone
-        </p>
-      </div>
-    </div>
-  );
-}
-`;
-      
-      await fs.writeFile(path.join(pagesDir, "index.js"), indexPage);
-      
-      // public klasörü oluştur
-      const publicDir = path.join(targetDir, "public");
-      await fs.mkdir(publicDir, { recursive: true });
-      
-      // favicon.ico oluştur (basit SVG)
-      const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="40" fill="#667eea"/>
-  <text x="50" y="60" text-anchor="middle" fill="white" font-size="40" font-family="Arial">🚀</text>
-</svg>`;
-      
-      await fs.writeFile(path.join(publicDir, "favicon.ico"), favicon);
-      
-      // robots.txt oluştur
-      const robotsTxt = `User-agent: *
-Allow: /
-
-Sitemap: https://demo.vercel-clone.app/sitemap.xml`;
-      
-      await fs.writeFile(path.join(publicDir, "robots.txt"), robotsTxt);
-      
-      // next.config.js oluştur
-      const nextConfig = `
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  output: 'standalone',
-  experimental: {
-    outputFileTracingRoot: undefined,
-  },
-}
-
-module.exports = nextConfig
-`;
-      
-      await fs.writeFile(path.join(targetDir, "next.config.js"), nextConfig);
-      
-      emitBuildLog(deploymentId, "Demo proje başarıyla oluşturuldu.\n");
-      
-    } catch (error) {
-      emitBuildLog(deploymentId, `Demo proje oluşturma hatası: ${error}\n`);
-      throw error;
-    }
   }
 
   private async installDependencies(projectDir: string, customCommand: string | undefined, deploymentId: string) {
@@ -365,16 +233,17 @@ module.exports = nextConfig
     emitBuildLog(deploymentId, `🔧 Install komutu: ${command}\n`);
     
     return new Promise<string>((resolve, reject) => {
-      // Node.js memory limitini artır
+      // NODE_ENV production olarak ayarla (Vercel default)
       const env = {
         ...process.env,
         NODE_OPTIONS: '--max-old-space-size=4096',
+        NODE_ENV: 'production' as 'production',
         // npm için özel ayarlar
         npm_config_loglevel: 'error',
         npm_config_fund: 'false',
         npm_config_audit: 'false',
         // yarn için
-        YARN_ENABLE_TELEMETRY: 'false'
+        YARN_ENABLE_TELEMETRY: 'false',
       };
       
       const childProcess = exec(command, { 
@@ -393,7 +262,7 @@ module.exports = nextConfig
       childProcess.stderr?.on('data', (data) => {
         const message = data.toString();
         // npm WARN mesajlarını filtrele
-        if (!message.includes('npm WARN')) {
+        if (!message.includes('npm WARN deprecated')) {
           emitBuildLog(deploymentId, message);
         }
       });
@@ -446,308 +315,118 @@ module.exports = nextConfig
   }
 
   private async buildProject(projectDir: string, framework: string, customCommand: string | undefined, deploymentId: string) {
-    emitBuildLog(deploymentId, `\n🏗️ Build işlemi başlatılıyor...\n`);
-    emitBuildLog(deploymentId, `📦 Framework: ${framework}\n`);
-    
-    // Proje yapısını kontrol et
-    await this.validateProjectStructure(projectDir, framework, deploymentId);
-    
-    // Next.js için özel optimizasyonlar
-    if (framework === "next") {
-      await this.ensureNextStandaloneOutput(projectDir, deploymentId);
-      await this.disableESLintIfNeeded(projectDir, deploymentId);
+    try {
+      // Environment variables'ı al
+      const envVars = await this.getProjectEnvVariables(deploymentId);
       
-      // package.json'dan Next.js versiyonunu kontrol et
-      try {
-        const packageJsonPath = path.join(projectDir, 'package.json');
-        const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
-        const nextVersion = packageJson.dependencies?.next || packageJson.devDependencies?.next;
-        if (nextVersion) {
-          emitBuildLog(deploymentId, `📌 Next.js version: ${nextVersion}\n`);
-        }
-      } catch (error) {
-        // Ignore errors
+      // Environment dosyası oluştur
+      if (Object.keys(envVars).length > 0) {
+        await this.createEnvFile(projectDir, envVars, deploymentId);
       }
-    }
-    
-    // Environment variables'ı al ve inject et
-    const envVars = await this.getProjectEnvVariables(deploymentId);
-    
-    // Package manager'ı algıla
-    const packageManager = await this.detectPackageManager(projectDir);
-    
-    let buildCommand = customCommand;
-    
-    if (!buildCommand) {
-      // Framework'e göre varsayılan build komutları
-      switch (framework) {
-        case "next":
-          buildCommand = `${packageManager} run build`;
-          break;
-        case "react":
-          // Create React App için özel kontrol
-          const isCreateReactApp = await this.isCreateReactApp(projectDir);
-          if (isCreateReactApp) {
-            buildCommand = `CI=false ${packageManager} run build`; // CI=false ile warnings'leri ignore et
-          } else {
-            buildCommand = `${packageManager} run build`;
+      
+      // Package manager'ı algıla
+      const packageManager = await this.detectPackageManager(projectDir);
+      
+      // Build komutu
+      const buildCommand = customCommand || this.getDefaultBuildCommand(packageManager, framework);
+      
+      emitBuildLog(deploymentId, `🔧 Build komutu: ${buildCommand}\n\n`);
+      
+      // Vercel'in yaptığı gibi - Next.js versiyonunu logla
+      if (framework === "next") {
+        try {
+          const packageJsonPath = path.join(projectDir, 'package.json');
+          const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
+          const nextVersion = packageJson.dependencies?.next || packageJson.devDependencies?.next;
+          if (nextVersion) {
+            emitBuildLog(deploymentId, `   ▲ Next.js ${nextVersion}\n`);
           }
-          break;
-        case "vue":
-          buildCommand = `${packageManager} run build`;
-          break;
-        default:
-          buildCommand = `${packageManager} run build`;
+        } catch (error) {
+          // Ignore
+        }
       }
-    }
-    
-    emitBuildLog(deploymentId, `🔧 Build komutu: ${buildCommand}\n\n`);
-    
-    return new Promise<string>((resolve, reject) => {
-      // Environment variables ve memory limiti ile birlikte çalıştır
-      const env = {
-        ...process.env,
-        ...envVars,
-        NODE_OPTIONS: '--max-old-space-size=4096',
-        // Next.js için özel env variables
-        NEXT_TELEMETRY_DISABLED: '1',
-        SKIP_ENV_VALIDATION: '1',
-        // CI ortamı olduğunu belirt
-        CI: 'true',
-        // React için
-        GENERATE_SOURCEMAP: 'false', // Build boyutunu küçült
-        // Common
-        NODE_ENV: 'production' as 'production'
-      };
       
-      const childProcess = exec(buildCommand, { 
-        cwd: projectDir,
-        env,
-        maxBuffer: 1024 * 1024 * 50, // 50MB buffer
-        timeout: 600000 // 10 dakika timeout
-      });
-      let output = '';
-      let errorOutput = '';
-      
-      childProcess.stdout?.on('data', (data) => {
-        output += data;
-        emitBuildLog(deploymentId, data.toString());
-      });
-      
-      childProcess.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-        // Next.js warning'lerini filtrele
-        if (!data.toString().includes('warn') && !data.toString().includes('⚠')) {
+      return new Promise<string>((resolve, reject) => {
+        // Environment variables ile birlikte çalıştır
+        const env = {
+          ...process.env,
+          ...envVars,
+          NODE_OPTIONS: '--max-old-space-size=4096',
+          NODE_ENV: 'production' as 'production',
+          // CI ortamı
+          CI: 'true',
+          // Vercel benzeri environment variables
+          VERCEL: '1' as '1',
+          VERCEL_ENV: 'production',
+          // Next.js için
+          NEXT_TELEMETRY_DISABLED: '1',
+        };
+        
+        const childProcess = exec(buildCommand, { 
+          cwd: projectDir,
+          env,
+          maxBuffer: 1024 * 1024 * 50, // 50MB buffer
+          timeout: 600000 // 10 dakika timeout
+        });
+        
+        let output = '';
+        let errorOutput = '';
+        
+        childProcess.stdout?.on('data', (data) => {
+          output += data;
           emitBuildLog(deploymentId, data.toString());
-        }
-      });
-      
-      childProcess.on('close', (code) => {
-        if (code === 0) {
-          emitBuildLog(deploymentId, "\n✅ Build işlemi başarıyla tamamlandı!\n");
-          
-          // Build output'u kontrol et
-          this.validateBuildOutput(projectDir, framework, deploymentId)
-            .then(() => resolve(output))
-            .catch((err) => {
-              emitBuildLog(deploymentId, `\n⚠️ Build output doğrulama hatası: ${err.message}\n`);
-              resolve(output); // Yine de devam et
-            });
-        } else {
-          // Detaylı hata analizi
-          let errorMessage = `Build failed with code ${code}`;
-          
-          // Common build hataları
-          if (errorOutput.includes('Cannot find module')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: Eksik modül hatası. package.json dosyanızı kontrol edin.';
-          } else if (errorOutput.includes('ESLint')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: ESLint hataları var. next.config.js dosyanıza eslint: { ignoreDuringBuilds: true } ekleyebilirsiniz.';
-          } else if (errorOutput.includes('TypeScript error')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: TypeScript hataları var. tsconfig.json dosyanızı kontrol edin veya next.config.js dosyanıza typescript: { ignoreBuildErrors: true } ekleyebilirsiniz.';
-          } else if (errorOutput.includes('out of memory') || errorOutput.includes('heap out of memory')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: Bellek yetersiz. Projeniz büyük olabilir, daha büyük bir plan seçmeniz gerekebilir.';
-          } else if (errorOutput.includes('ENOSPC')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: Disk alanı yetersiz.';
-          } else if (errorOutput.includes('permission denied')) {
-            errorMessage += '\n\n💡 Çözüm önerisi: Dosya izin hatası.';
-          }
-          
-          emitBuildLog(deploymentId, `\n❌ ${errorMessage}\n`);
-          reject(new Error(errorMessage));
-        }
-      });
-    });
-  }
-
-  private async validateProjectStructure(projectDir: string, framework: string, deploymentId: string) {
-    try {
-      // package.json kontrolü
-      const packageJsonPath = path.join(projectDir, 'package.json');
-      try {
-        await fs.access(packageJsonPath);
-        emitBuildLog(deploymentId, `✅ package.json bulundu\n`);
-      } catch {
-        emitBuildLog(deploymentId, `⚠️ package.json bulunamadı - Build başarısız olabilir\n`);
-      }
-      
-      // Framework'e özgü kontroller
-      switch (framework) {
-        case 'next':
-          // pages veya app dizini kontrolü
-          const pagesExists = await this.checkDirExists(path.join(projectDir, 'pages'));
-          const appExists = await this.checkDirExists(path.join(projectDir, 'app'));
-          const srcPagesExists = await this.checkDirExists(path.join(projectDir, 'src/pages'));
-          const srcAppExists = await this.checkDirExists(path.join(projectDir, 'src/app'));
-          
-          if (pagesExists || appExists || srcPagesExists || srcAppExists) {
-            emitBuildLog(deploymentId, `✅ Next.js proje yapısı doğrulandı\n`);
+        });
+        
+        childProcess.stderr?.on('data', (data) => {
+          errorOutput += data.toString();
+          emitBuildLog(deploymentId, data.toString());
+        });
+        
+        childProcess.on('close', (code) => {
+          if (code === 0) {
+            emitBuildLog(deploymentId, "\n✅ Build işlemi başarıyla tamamlandı!\n");
+            resolve(output);
           } else {
-            emitBuildLog(deploymentId, `⚠️ pages veya app dizini bulunamadı\n`);
+            emitBuildLog(deploymentId, `\n❌ Build failed with code ${code}\n`);
+            reject(new Error(`Build failed with code ${code}`));
           }
-          break;
-          
-        case 'react':
-          // public ve src dizini kontrolü
-          const publicExists = await this.checkDirExists(path.join(projectDir, 'public'));
-          const srcExists = await this.checkDirExists(path.join(projectDir, 'src'));
-          
-          if (publicExists && srcExists) {
-            emitBuildLog(deploymentId, `✅ React proje yapısı doğrulandı\n`);
-          }
-          break;
-          
-        case 'vue':
-          // src dizini kontrolü
-          const vueSrcExists = await this.checkDirExists(path.join(projectDir, 'src'));
-          if (vueSrcExists) {
-            emitBuildLog(deploymentId, `✅ Vue proje yapısı doğrulandı\n`);
-          }
-          break;
-      }
+        });
+      });
     } catch (error) {
-      emitBuildLog(deploymentId, `⚠️ Proje yapısı doğrulama hatası: ${error}\n`);
-    }
-  }
-
-  private async checkDirExists(dirPath: string): Promise<boolean> {
-    try {
-      const stats = await fs.stat(dirPath);
-      return stats.isDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  private async isCreateReactApp(projectDir: string): Promise<boolean> {
-    try {
-      const packageJsonPath = path.join(projectDir, 'package.json');
-      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
-      
-      // react-scripts dependency'sini kontrol et
-      return !!(packageJson.dependencies?.['react-scripts'] || packageJson.devDependencies?.['react-scripts']);
-    } catch {
-      return false;
-    }
-  }
-
-  private async validateBuildOutput(projectDir: string, framework: string, deploymentId: string) {
-    try {
-      switch (framework) {
-        case 'next':
-          // .next dizini kontrolü
-          const nextBuildExists = await this.checkDirExists(path.join(projectDir, '.next'));
-          if (!nextBuildExists) {
-            throw new Error('.next dizini bulunamadı');
-          }
-          
-          // Standalone output kontrolü
-          const standaloneExists = await this.checkDirExists(path.join(projectDir, '.next/standalone'));
-          if (standaloneExists) {
-            emitBuildLog(deploymentId, `✅ Next.js standalone output oluşturuldu\n`);
-          }
-          break;
-          
-        case 'react':
-          // build dizini kontrolü
-          const buildExists = await this.checkDirExists(path.join(projectDir, 'build'));
-          if (!buildExists) {
-            throw new Error('build dizini bulunamadı');
-          }
-          break;
-          
-        case 'vue':
-          // dist dizini kontrolü
-          const distExists = await this.checkDirExists(path.join(projectDir, 'dist'));
-          if (!distExists) {
-            throw new Error('dist dizini bulunamadı');
-          }
-          break;
-      }
-      
-      emitBuildLog(deploymentId, `✅ Build output doğrulandı\n`);
-    } catch (error) {
+      console.error(`❌ Build hatası (${deploymentId}):`, error);
       throw error;
     }
   }
 
-  private async disableESLintIfNeeded(projectDir: string, deploymentId: string) {
+  private getDefaultBuildCommand(packageManager: string, framework: string): string {
+    // Vercel'in varsayılan build komutları
+    switch (framework) {
+      case 'next':
+        return `${packageManager} run build`;
+      case 'react':
+        return `${packageManager} run build`;
+      case 'vue':
+        return `${packageManager} run build`;
+      default:
+        return `${packageManager} run build`;
+    }
+  }
+
+  private async createEnvFile(projectDir: string, envVars: Record<string, string>, deploymentId: string): Promise<void> {
     try {
-      const nextConfigPath = path.join(projectDir, "next.config.js");
-      const nextConfigMjsPath = path.join(projectDir, "next.config.mjs");
-      
-      let configPath = '';
-      try {
-        await fs.access(nextConfigPath);
-        configPath = nextConfigPath;
-      } catch {
-        try {
-          await fs.access(nextConfigMjsPath);
-          configPath = nextConfigMjsPath;
-        } catch {
-          return; // Config dosyası yok
-        }
+      // Environment variables içeriğini oluştur
+      let envContent = '';
+      for (const [key, value] of Object.entries(envVars)) {
+        envContent += `${key}=${value}\n`;
       }
       
-      const configContent = await fs.readFile(configPath, 'utf-8');
+      // Vercel gibi .env.production.local dosyası oluştur
+      const envPath = path.join(projectDir, '.env.production.local');
+      await fs.writeFile(envPath, envContent);
       
-      // ESLint ignore already exists?
-      if (configContent.includes('ignoreDuringBuilds')) {
-        return;
-      }
-      
-      emitBuildLog(deploymentId, "ESLint ve TypeScript hataları build sırasında göz ardı edilecek...\n");
-      
-      // Add ESLint and TypeScript ignore
-      let updatedConfig = configContent;
-      
-      if (configContent.includes('const nextConfig = {')) {
-        updatedConfig = configContent.replace(
-          /const nextConfig = \{/,
-          `const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },`
-        );
-      } else if (configContent.includes('module.exports = {')) {
-        updatedConfig = configContent.replace(
-          /module\.exports = \{/,
-          `module.exports = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },`
-        );
-      }
-      
-      await fs.writeFile(configPath, updatedConfig);
-      
+      emitBuildLog(deploymentId, `   - Environments: .env.production.local\n\n`);
     } catch (error) {
-      console.error("ESLint config update error:", error);
+      console.error("Env dosyası oluşturma hatası:", error);
     }
   }
 
@@ -777,124 +456,15 @@ module.exports = nextConfig
         const target = isProduction ? 'production' : 'preview';
         
         if (envVar.target.includes(target) || envVar.target.includes('development')) {
-          // Decrypt işlemi burada yapılmalı
-          envVars[envVar.key] = envVar.value; // Şimdilik plain text, sonra decrypt eklenecek
+          // Decrypt işlemi ile şifrelenmiş değeri çöz
+          envVars[envVar.key] = decrypt(envVar.value);
         }
       }
-      
-      emitBuildLog(deploymentId, `${Object.keys(envVars).length} environment variable yüklendi.\n`);
       
       return envVars;
     } catch (error) {
       console.error("Environment variables yüklenirken hata:", error);
       return {};
-    }
-  }
-
-  private async ensureNextStandaloneOutput(projectDir: string, deploymentId: string) {
-    try {
-      const nextConfigPath = path.join(projectDir, "next.config.js");
-      const nextConfigMjsPath = path.join(projectDir, "next.config.mjs");
-      
-      // Mevcut next.config dosyasını kontrol et
-      let configExists = false;
-      let configPath = nextConfigPath;
-      
-      try {
-        await fs.access(nextConfigPath);
-        configExists = true;
-        emitBuildLog(deploymentId, "Mevcut next.config.js bulundu, standalone output ekleniyor...\n");
-      } catch {
-        try {
-          await fs.access(nextConfigMjsPath);
-          configExists = true;
-          configPath = nextConfigMjsPath;
-          emitBuildLog(deploymentId, "Mevcut next.config.mjs bulundu, standalone output ekleniyor...\n");
-        } catch {
-          emitBuildLog(deploymentId, "next.config.js bulunamadı, yeni oluşturuluyor...\n");
-        }
-      }
-      
-      if (configExists) {
-        // Mevcut config'i oku ve standalone output ekle
-        const configContent = await fs.readFile(configPath, 'utf-8');
-        
-        // Standalone output zaten var mı kontrol et
-        if (configContent.includes('output:') && configContent.includes('standalone')) {
-          emitBuildLog(deploymentId, "Standalone output zaten mevcut.\n");
-          return;
-        }
-        
-        // Config'i güncelle
-        let updatedConfig = configContent;
-        
-        // nextConfig objesini bul ve standalone output ekle
-        if (configContent.includes('const nextConfig = {')) {
-          updatedConfig = configContent.replace(
-            /const nextConfig = \{[\s\S]*?\}/,
-            (match) => {
-              const hasOutput = match.includes('output:');
-              if (hasOutput) {
-                return match.replace(/output:\s*['"][^'"]*['"]/, "output: 'standalone'");
-              } else {
-                return match.replace(
-                  /const nextConfig = \{/,
-                  "const nextConfig = {\n  output: 'standalone',"
-                );
-              }
-            }
-          );
-        } else if (configContent.includes('module.exports = {')) {
-          updatedConfig = configContent.replace(
-            /module\.exports = \{[\s\S]*?\}/,
-            (match) => {
-              const hasOutput = match.includes('output:');
-              if (hasOutput) {
-                return match.replace(/output:\s*['"][^'"]*['"]/, "output: 'standalone'");
-              } else {
-                return match.replace(
-                  /module\.exports = \{/,
-                  "module.exports = {\n  output: 'standalone',"
-                );
-              }
-            }
-          );
-        } else {
-          // Basit config dosyası, standalone output ekle
-          updatedConfig = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  output: 'standalone',
-  ...${configContent.replace(/module\.exports\s*=\s*/, '').replace(/;?\s*$/, '')}
-}
-
-module.exports = nextConfig
-`;
-        }
-        
-        await fs.writeFile(configPath, updatedConfig);
-        emitBuildLog(deploymentId, "next.config.js güncellendi, standalone output eklendi.\n");
-        
-      } else {
-        // Yeni next.config.js oluştur
-        const newConfig = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  output: 'standalone',
-  reactStrictMode: true,
-  experimental: {
-    outputFileTracingRoot: undefined,
-  },
-}
-
-module.exports = nextConfig
-`;
-        
-        await fs.writeFile(nextConfigPath, newConfig);
-        emitBuildLog(deploymentId, "Yeni next.config.js oluşturuldu, standalone output etkinleştirildi.\n");
-      }
-      
-    } catch (error) {
-      emitBuildLog(deploymentId, `next.config.js güncelleme hatası: ${error}\n`);
-      console.error("Next.js config güncelleme hatası:", error);
     }
   }
 
@@ -986,7 +556,7 @@ module.exports = nextConfig
   private generateDockerfile(framework: string, jobData: BuildJobData): string {
     const nodeVersion = jobData.nodeVersion || "18";
 
-    // Next.js için özel Dockerfile
+    // Next.js için özel Dockerfile (Vercel'in yaklaşımı)
     if (framework === "next") {
       return `FROM node:${nodeVersion}-alpine AS base
 
@@ -995,12 +565,14 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install dependencies based on the preferred package manager
+# Copy package files
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+
+# Install dependencies
 RUN \\
   if [ -f yarn.lock ]; then yarn --frozen-lockfile; \\
   elif [ -f package-lock.json ]; then npm ci; \\
-  elif [ -f pnpm-lock.yaml ]; then yarn global add pnpm && pnpm i --frozen-lockfile; \\
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \\
   else echo "Lockfile not found." && exit 1; \\
   fi
 
@@ -1010,29 +582,42 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the application
-RUN npm run build
+# Environment variables
+ENV NEXT_TELEMETRY_DISABLED 1
+
+# Build
+RUN \\
+  if [ -f yarn.lock ]; then yarn build; \\
+  elif [ -f package-lock.json ]; then npm run build; \\
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm build; \\
+  else npm run build; \\
+  fi
 
 # Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Create public directory if it doesn't exist and copy if it does
-RUN mkdir -p ./public
+# Copy public assets
 COPY --from=builder /app/public ./public
 
 # Set the correct permission for prerender cache
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
 
-# Automatically leverage output traces to reduce image size
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+# Standalone yapı varsa kullan, yoksa normal yapıyı kullan
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone* ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Eğer standalone yoksa, tüm projeyi kopyala
+COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules || true
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next || true
 
 USER nextjs
 
@@ -1041,7 +626,8 @@ EXPOSE 3000
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
-CMD ["node", "server.js"]`;
+# Standalone varsa server.js, yoksa next start kullan
+CMD if [ -f server.js ]; then node server.js; else npm start; fi`;
     }
 
     // React/Vue için static build
@@ -1051,15 +637,31 @@ CMD ["node", "server.js"]`;
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-RUN npm ci
+RUN \\
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \\
+  elif [ -f package-lock.json ]; then npm ci; \\
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \\
+  else npm ci; \\
+  fi
 
 COPY . .
 RUN npm run build
 
-# Production stage
+# Production stage with nginx
 FROM nginx:alpine
 COPY --from=builder /app/${outputDir} /usr/share/nginx/html
+
+# Custom nginx config for SPA routing
+RUN echo 'server { \\
+    listen 80; \\
+    location / { \\
+        root /usr/share/nginx/html; \\
+        try_files $uri /index.html; \\
+    } \\
+}' > /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]`;
     }
@@ -1069,6 +671,7 @@ CMD ["nginx", "-g", "daemon off;"]`;
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
 RUN npm ci --only=production
 

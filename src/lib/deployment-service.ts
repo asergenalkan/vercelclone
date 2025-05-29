@@ -3,6 +3,7 @@ import { db } from "./db";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { Server } from "http";
 import express from "express";
+import { decrypt } from "./encryption";
 
 const docker = new Docker();
 
@@ -285,16 +286,6 @@ async function getEnvVariables(projectId: string, target: string): Promise<strin
     const decryptedValue = decrypt(env.value);
     return `${env.key}=${decryptedValue}`;
   });
-}
-
-// Basit decrypt fonksiyonu (auth.ts'den import edilmeli)
-function decrypt(text: string): string {
-  const crypto = require("crypto");
-  const ENCRYPTION_KEY = process.env.ENV_ENCRYPTION_KEY || "default-encryption-key-change-this";
-  const decipher = crypto.createDecipher("aes-256-cbc", ENCRYPTION_KEY);
-  let decrypted = decipher.update(text, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
 }
 
 // Proxy server oluştur

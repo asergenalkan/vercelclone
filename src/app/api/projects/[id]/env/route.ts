@@ -3,24 +3,10 @@ import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
-import crypto from "crypto";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 // Şifreleme için basit bir yöntem (production'da daha güvenli bir yöntem kullanılmalı)
 const ENCRYPTION_KEY = process.env.ENV_ENCRYPTION_KEY || "default-encryption-key-change-this";
-
-function encrypt(text: string): string {
-  const cipher = crypto.createCipher("aes-256-cbc", ENCRYPTION_KEY);
-  let encrypted = cipher.update(text, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return encrypted;
-}
-
-function decrypt(text: string): string {
-  const decipher = crypto.createDecipher("aes-256-cbc", ENCRYPTION_KEY);
-  let decrypted = decipher.update(text, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
 
 const envVariableSchema = z.object({
   key: z.string().min(1).regex(/^[A-Z_][A-Z0-9_]*$/, {
@@ -45,7 +31,7 @@ export async function GET(
       );
     }
 
-    const projectId = context.params.id;
+    const projectId = (await context.params).id;
 
     // Projeyi kontrol et
     const project = await db.project.findUnique({
@@ -103,7 +89,7 @@ export async function POST(
       );
     }
 
-    const projectId = context.params.id;
+    const projectId = (await context.params).id;
     const body = await req.json();
     const { key, value, target } = envVariableSchema.parse(body);
 
@@ -201,7 +187,7 @@ export async function PATCH(
       );
     }
 
-    const projectId = context.params.id;
+    const projectId = (await context.params).id;
     const body = await req.json();
     const { id, key, value, target } = body;
 
@@ -334,11 +320,11 @@ export async function DELETE(
       );
     }
 
-    const projectId = context.params.id;
+    const projectId = (await context.params).id;
     const searchParams = new URL(req.url).searchParams;
-    const id = searchParams.get("id");
+    const envId = searchParams.get("envId");
 
-    if (!id) {
+    if (!envId) {
       return NextResponse.json(
         { error: "Environment variable ID gerekli" },
         { status: 400 }
@@ -363,7 +349,7 @@ export async function DELETE(
     // Env variable'ın var olduğunu ve bu projeye ait olduğunu kontrol et
     const envVariable = await db.envVariable.findFirst({
       where: {
-        id,
+        id: envId,
         projectId,
       },
     });
@@ -378,7 +364,7 @@ export async function DELETE(
     // Env variable'ı sil
     await db.envVariable.delete({
       where: {
-        id,
+        id: envId,
       },
     });
 
