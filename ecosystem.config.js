@@ -7,7 +7,7 @@ module.exports = {
         cwd: '/var/www/vercelclone',
         env: {
           NODE_ENV: 'production',
-          PORT: 3000
+          PORT: 3001
         },
         watch: false,
         instances: "max",
@@ -32,11 +32,12 @@ module.exports = {
         args: 'run worker',
         cwd: '/var/www/vercelclone',
         env: {
-          NODE_ENV: 'production'
+          NODE_ENV: 'production',
+          DEBUG: 'bull,bull:*'
         },
         watch: false,
-        instances: "max",
-        exec_mode: 'cluster'
+        instances: 1,
+        exec_mode: 'fork'
       },
       {
         name: 'vercel-proxy',

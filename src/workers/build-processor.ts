@@ -1,9 +1,65 @@
 import { buildQueue } from "@/lib/queue/build-queue";
 import { BuildWorker } from "@/lib/build/build-worker";
 import { disconnectWorkerSocket } from "@/lib/socket/socket-client";
+import fs from 'fs';
+import path from 'path';
 
 // Build worker instance
 const buildWorker = new BuildWorker();
+
+// Enhanced logging setup
+const logDirectory = path.join(process.cwd(), "logs");
+const workerId = process.env.pm_id || Date.now().toString(); // PM2 instance ID'sini al, yoksa timestamp kullan
+const logFilePath = path.join(logDirectory, `worker-${workerId}.log`);
+
+// Log dizinini oluştur
+try {
+  if (!fs.existsSync(logDirectory)) {
+    fs.mkdirSync(logDirectory, { recursive: true });
+  }
+} catch (error) {
+  console.error("Log dizini oluşturulamadı:", error);
+}
+
+// Log fonksiyonunu gölgele
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+// Konsol çıktısını hem klasik konsola hem de dosyaya yazan bir fonksiyon
+console.log = function(...args) {
+  const message = args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  
+  // Orijinal konsol fonksiyonunu çağır
+  originalConsoleLog.apply(console, args);
+  
+  // Dosyaya yaz
+  try {
+    fs.appendFileSync(logFilePath, `${new Date().toISOString()} [INFO] ${message}\n`);
+  } catch (err) {
+    originalConsoleError.apply(console, [`Loga yazma hatası: ${err}`]);
+  }
+};
+
+console.error = function(...args) {
+  const message = args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  
+  // Orijinal konsol fonksiyonunu çağır
+  originalConsoleError.apply(console, args);
+  
+  // Dosyaya yaz
+  try {
+    fs.appendFileSync(logFilePath, `${new Date().toISOString()} [ERROR] ${message}\n`);
+  } catch (err) {
+    originalConsoleError.apply(console, [`Loga yazma hatası: ${err}`]);
+  }
+};
+
+// Başlangıç mesajı
+console.log(`Build worker başlatıldı. Worker ID: ${workerId}, Log dosyası: ${logFilePath}`);
 
 // Job processor
 buildQueue.process("build", async (job) => {
