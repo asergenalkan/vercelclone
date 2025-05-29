@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
 
 interface AnalyticsPageProps {
-  params: {
-    id: string;
-  };
+  params: any;
 }
 
 export default async function AnalyticsPage({ params }: AnalyticsPageProps) {

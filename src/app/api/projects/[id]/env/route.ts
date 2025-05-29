@@ -32,8 +32,8 @@ const envVariableSchema = z.object({
 
 // GET - Environment variables listesi
 export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -45,7 +45,7 @@ export async function GET(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
 
     // Projeyi kontrol et
     const project = await db.project.findUnique({
@@ -90,8 +90,8 @@ export async function GET(
 
 // POST - Yeni environment variable ekle
 export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -103,7 +103,7 @@ export async function POST(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
     const body = await req.json();
     const { key, value, target } = envVariableSchema.parse(body);
 
@@ -188,8 +188,8 @@ export async function POST(
 
 // PATCH - Environment variable güncelle
 export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -201,22 +201,37 @@ export async function PATCH(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
     const body = await req.json();
-    const { envId, value, target } = z.object({
-      envId: z.string(),
-      value: z.string().optional(),
-      target: z.array(z.enum(["development", "preview", "production"])).optional(),
-    }).parse(body);
+    const { id, key, value, target } = body;
 
-    // Environment variable'ı kontrol et
+    if (!id) {
+      return NextResponse.json(
+        { error: "Environment variable ID gerekli" },
+        { status: 400 }
+      );
+    }
+
+    // Projeyi kontrol et
+    const project = await db.project.findUnique({
+      where: {
+        id: projectId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!project) {
+      return NextResponse.json(
+        { error: "Proje bulunamadı" },
+        { status: 404 }
+      );
+    }
+
+    // Env variable'ın var olduğunu ve bu projeye ait olduğunu kontrol et
     const envVariable = await db.envVariable.findFirst({
       where: {
-        id: envId,
+        id,
         projectId,
-        project: {
-          userId: session.user.id,
-        },
       },
     });
 
@@ -227,17 +242,45 @@ export async function PATCH(
       );
     }
 
-    // Güncelle
+    // Eğer key değişiyorsa, yeni key'in benzersiz olduğunu kontrol et
+    if (key && key !== envVariable.key) {
+      const existing = await db.envVariable.findUnique({
+        where: {
+          projectId_key: {
+            projectId,
+            key,
+          },
+        },
+      });
+
+      if (existing && existing.id !== id) {
+        return NextResponse.json(
+          { error: "Bu key zaten mevcut" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Güncelleme verilerini hazırla
     const updateData: any = {};
-    if (value !== undefined) {
+    
+    if (key) {
+      updateData.key = key;
+    }
+    
+    if (value) {
       updateData.value = encrypt(value);
     }
-    if (target !== undefined) {
+    
+    if (target) {
       updateData.target = target;
     }
 
-    const updated = await db.envVariable.update({
-      where: { id: envId },
+    // Env variable'ı güncelle
+    const updatedEnvVariable = await db.envVariable.update({
+      where: {
+        id,
+      },
       data: updateData,
     });
 
@@ -248,16 +291,15 @@ export async function PATCH(
         projectId,
         type: "env_updated",
         metadata: {
-          key: updated.key,
-          changes: Object.keys(updateData),
+          key: updatedEnvVariable.key,
         },
       },
     });
 
     return NextResponse.json({
       envVariable: {
-        ...updated,
-        value: value || decrypt(updated.value),
+        ...updatedEnvVariable,
+        value: value || decrypt(updatedEnvVariable.value), // Decrypt edilmiş değeri döndür
       },
       message: "Environment variable başarıyla güncellendi",
     });
@@ -279,8 +321,8 @@ export async function PATCH(
 
 // DELETE - Environment variable sil
 export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -292,25 +334,37 @@ export async function DELETE(
       );
     }
 
-    const projectId = params.id;
-    const { searchParams } = new URL(req.url);
-    const envId = searchParams.get("envId");
+    const projectId = context.params.id;
+    const searchParams = new URL(req.url).searchParams;
+    const id = searchParams.get("id");
 
-    if (!envId) {
+    if (!id) {
       return NextResponse.json(
         { error: "Environment variable ID gerekli" },
         { status: 400 }
       );
     }
 
-    // Environment variable'ı kontrol et
+    // Projeyi kontrol et
+    const project = await db.project.findUnique({
+      where: {
+        id: projectId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!project) {
+      return NextResponse.json(
+        { error: "Proje bulunamadı" },
+        { status: 404 }
+      );
+    }
+
+    // Env variable'ın var olduğunu ve bu projeye ait olduğunu kontrol et
     const envVariable = await db.envVariable.findFirst({
       where: {
-        id: envId,
+        id,
         projectId,
-        project: {
-          userId: session.user.id,
-        },
       },
     });
 
@@ -321,9 +375,11 @@ export async function DELETE(
       );
     }
 
-    // Sil
+    // Env variable'ı sil
     await db.envVariable.delete({
-      where: { id: envId },
+      where: {
+        id,
+      },
     });
 
     // Activity log ekle

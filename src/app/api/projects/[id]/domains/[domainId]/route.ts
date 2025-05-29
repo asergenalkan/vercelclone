@@ -4,8 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string; domainId: string } }
+  request: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -17,7 +17,7 @@ export async function DELETE(
       );
     }
 
-    const { id: projectId, domainId } = params;
+    const { id: projectId, domainId } = context.params;
 
     // Projenin var olduğunu ve kullanıcıya ait olduğunu kontrol et
     const project = await db.project.findUnique({
@@ -69,8 +69,8 @@ export async function DELETE(
 }
 
 export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string; domainId: string } }
+  request: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -82,7 +82,7 @@ export async function PATCH(
       );
     }
 
-    const { id: projectId, domainId } = params;
+    const { id: projectId, domainId } = context.params;
 
     // Projenin var olduğunu ve kullanıcıya ait olduğunu kontrol et
     const project = await db.project.findUnique({

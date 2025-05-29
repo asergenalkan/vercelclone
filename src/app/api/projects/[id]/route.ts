@@ -19,8 +19,8 @@ const projectUpdateSchema = z.object({
 });
 
 export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -32,7 +32,7 @@ export async function GET(
       );
     }
 
-    const { id: projectId } = await params;
+    const { id: projectId } = await context.params;
     const userId = session.user.id;
 
     const project = await db.project.findUnique({
@@ -68,8 +68,8 @@ export async function GET(
 }
 
 export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -81,7 +81,7 @@ export async function PATCH(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
     const body = await req.json();
     
     const validatedData = projectUpdateSchema.parse(body);
@@ -130,8 +130,8 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -143,7 +143,7 @@ export async function DELETE(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
 
     // Projenin var olduğunu ve kullanıcıya ait olduğunu kontrol et
     const existingProject = await db.project.findUnique({

@@ -9,9 +9,9 @@ import { ProjectSettings } from "@/components/project/project-settings";
 import { DeleteProjectButton } from "@/components/project/delete-project-button";
 
 interface ProjectSettingsPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps) {
@@ -21,9 +21,11 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     redirect("/login");
   }
 
+  const { id } = await params;
+
   const project = await db.project.findUnique({
     where: {
-      id: params.id,
+      id,
       userId: session.user.id,
     },
   });

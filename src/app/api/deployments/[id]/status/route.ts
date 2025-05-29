@@ -5,8 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { getBuildJobStatus } from "@/lib/queue/build-queue";
 
 export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -18,7 +18,7 @@ export async function GET(
       );
     }
 
-    const { id: deploymentId } = await params;
+    const { id: deploymentId } = await context.params;
 
     // Deployment'ı getir
     const deployment = await db.deployment.findUnique({

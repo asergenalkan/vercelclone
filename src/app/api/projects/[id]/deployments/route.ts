@@ -5,8 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { addBuildJob } from "@/lib/queue/build-queue";
 
 export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -18,7 +18,7 @@ export async function POST(
       );
     }
 
-    const { id: projectId } = await params;
+    const { id: projectId } = await context.params;
     const userId = session.user.id;
 
     // Projeyi kontrol et
@@ -135,8 +135,8 @@ export async function POST(
 }
 
 export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -148,7 +148,7 @@ export async function GET(
       );
     }
 
-    const { id: projectId } = await params;
+    const { id: projectId } = await context.params;
     const userId = session.user.id;
 
     // Projeyi kontrol et

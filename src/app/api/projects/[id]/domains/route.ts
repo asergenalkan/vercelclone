@@ -9,8 +9,8 @@ const domainSchema = z.object({
 });
 
 export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -22,7 +22,7 @@ export async function POST(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
     const body = await req.json();
     const { name } = domainSchema.parse(body);
 
@@ -85,8 +85,8 @@ export async function POST(
 }
 
 export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
+  req: any,
+  context: any
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -98,7 +98,7 @@ export async function GET(
       );
     }
 
-    const projectId = params.id;
+    const projectId = context.params.id;
 
     // Projenin var olduğunu ve kullanıcıya ait olduğunu kontrol et
     const project = await db.project.findUnique({

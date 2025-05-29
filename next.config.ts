@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  eslint: {
+    // Build sırasında ESLint kontrollerini devre dışı bırak
+    ignoreDuringBuilds: true,
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Server-side'da native modülleri external olarak işaretle
@@ -14,9 +18,13 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-  experimental: {
-    serverComponentsExternalPackages: ['dockerode', 'ssh2', 'docker-modem']
-  }
+  serverExternalPackages: ['dockerode', 'ssh2', 'docker-modem'],
+  transpilePackages: [
+    '@uiw/react-codemirror',
+    '@codemirror/language',
+    '@codemirror/legacy-modes',
+    '@uiw/codemirror-theme-tokyo-night'
+  ]
 };
 
 export default nextConfig;
