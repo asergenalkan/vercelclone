@@ -25,60 +25,85 @@ export function useDeploymentLogs(deploymentId: string | null) {
   useEffect(() => {
     if (!deploymentId) return;
 
+    console.log(`📡 Socket bağlantısı kuruluyor: http://localhost:3003, deploymentId: ${deploymentId}`);
+
     // Socket bağlantısı kur
     const socketInstance = io("http://localhost:3003", {
       path: "/socket.io/",
       transports: ["websocket", "polling"],
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      timeout: 20000,
+      timeout: 30000,
       forceNew: true,
     });
 
+    socketInstance.on("connect_error", (err) => {
+      console.error("Socket bağlantı hatası:", err.message);
+      setIsConnected(false);
+    });
+
+    socketInstance.on("connect_timeout", () => {
+      console.error("Socket bağlantı zaman aşımı");
+      setIsConnected(false);
+    });
+
+    socketInstance.on("reconnect_attempt", (attempt) => {
+      console.log(`Yeniden bağlanma denemesi: ${attempt}`);
+    });
+
     socketInstance.on("connect", () => {
-      console.log("Socket connected");
+      console.log("Socket bağlandı:", socketInstance.id);
       setIsConnected(true);
       
       // Deployment'a subscribe ol
+      console.log(`Deployment'a abone olunuyor: ${deploymentId}`);
       socketInstance.emit("subscribe:deployment", deploymentId);
     });
 
     socketInstance.on("disconnect", () => {
-      console.log("Socket disconnected");
+      console.log("Socket bağlantısı kesildi");
       setIsConnected(false);
     });
 
     // İlk log batch'i
     socketInstance.on("deployment:logs", (data: { logs: string; status: string }) => {
-      setLogs(data.logs);
+      console.log(`İlk loglar alındı, durum: ${data.status}`);
+      setLogs(data.logs || "");
       setStatus(data.status);
     });
 
     // Real-time log updates
     socketInstance.on("deployment:log", (data: DeploymentLog) => {
+      console.log(`Log güncellendi, deployment: ${data.deploymentId}`);
       setLogs((prevLogs) => prevLogs + data.log);
+      if (data.status) {
+        setStatus(data.status);
+      }
     });
 
     // Status updates
     socketInstance.on("deployment:status", (data: DeploymentStatus) => {
+      console.log(`Durum güncellendi: ${data.status}`);
       setStatus(data.status);
     });
 
     // Error handling
     socketInstance.on("error", (error: { message: string }) => {
-      console.error("Socket error:", error);
+      console.error("Socket hatası:", error);
     });
 
     setSocket(socketInstance);
 
     // Cleanup
     return () => {
+      console.log(`Socket bağlantısı kapatılıyor, deployment: ${deploymentId}`);
       if (socketInstance.connected) {
         socketInstance.emit("unsubscribe:deployment", deploymentId);
         socketInstance.disconnect();
       }
+      setSocket(null);
     };
   }, [deploymentId]);
 

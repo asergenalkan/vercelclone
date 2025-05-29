@@ -1,23 +1,16 @@
-import { createServer } from "http";
+import { Server as HTTPServer, createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { buildQueue } from "../queue/build-queue";
 import { db } from "../db";
 
 let io: SocketIOServer | null = null;
 
-// Standalone socket server for PM2
-if (require.main === module) {
-  startSocketServer();
-}
-
-function startSocketServer() {
-  const httpServer = createServer();
-  
+export function initSocketServer(httpServer: HTTPServer) {
   io = new SocketIOServer(httpServer, {
     cors: {
       origin: [
-        "http://localhost:3000",
-        "https://pixepix.com",
+        "http://localhost:3000", 
+        "http://localhost:3001",
         process.env.NEXTAUTH_URL || "http://localhost:3000"
       ],
       methods: ["GET", "POST"],
@@ -26,21 +19,6 @@ function startSocketServer() {
     path: "/socket.io/",
     transports: ["websocket", "polling"],
   });
-
-  setupSocketHandlers();
-  setupBuildQueueListeners();
-
-  const PORT = process.env.SOCKET_PORT || 3003;
-  
-  httpServer.listen(PORT, () => {
-    console.log(`🚀 Socket.io server running on port ${PORT}`);
-  });
-
-  return io;
-}
-
-function setupSocketHandlers() {
-  if (!io) return;
 
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
@@ -77,28 +55,41 @@ function setupSocketHandlers() {
       socket.leave(`deployment:${deploymentId}`);
     });
 
+    // Worker'dan gelen build log event'leri
+    socket.on("worker:build-log", (data: { deploymentId: string, log: string, status?: string, timestamp: string }) => {
+      console.log(`Worker log received for deployment ${data.deploymentId}`);
+      
+      // Tüm subscribe olan client'lara yayınla
+      if (io) {
+        io.to(`deployment:${data.deploymentId}`).emit("deployment:log", {
+          deploymentId: data.deploymentId,
+          log: data.log,
+          status: data.status,
+          timestamp: data.timestamp,
+        });
+      }
+    });
+
+    // Worker'dan gelen status update event'leri
+    socket.on("worker:deployment-status", (data: { deploymentId: string, status: string, timestamp: string }) => {
+      console.log(`Worker status update received for deployment ${data.deploymentId}: ${data.status}`);
+      
+      // Tüm subscribe olan client'lara yayınla
+      if (io) {
+        io.to(`deployment:${data.deploymentId}`).emit("deployment:status", {
+          deploymentId: data.deploymentId,
+          status: data.status,
+          timestamp: data.timestamp,
+        });
+      }
+    });
+
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
     });
   });
-}
 
-export function initSocketServer(httpServer: any) {
-  io = new SocketIOServer(httpServer, {
-    cors: {
-      origin: [
-        "http://localhost:3000", 
-        "http://localhost:3001",
-        process.env.NEXTAUTH_URL || "http://localhost:3000"
-      ],
-      methods: ["GET", "POST"],
-      credentials: true,
-    },
-    path: "/socket.io/",
-    transports: ["websocket", "polling"],
-  });
-
-  setupSocketHandlers();
+  // Build queue event listeners for real-time updates
   setupBuildQueueListeners();
 
   return io;
@@ -154,5 +145,17 @@ function setupBuildQueueListeners() {
     const { deploymentId } = job.data;
     emitBuildLog(deploymentId, `Build hatası: ${err.message}\n`);
     emitDeploymentStatus(deploymentId, "FAILED");
+  });
+}
+
+// Bağımsız sunucu olarak çalıştırılırsa bu kod çalışacak
+if (require.main === module) {
+  const PORT = process.env.SOCKET_PORT || 3003;
+  const httpServer = createServer();
+  
+  initSocketServer(httpServer);
+  
+  httpServer.listen(PORT, () => {
+    console.log(`🔌 Socket.IO sunucusu port ${PORT} üzerinde çalışıyor`);
   });
 } 

@@ -348,9 +348,8 @@ export function createProxyServer(): Server {
     res.status(404).send("Deployment not found");
   });
 
-  const proxyPort = process.env.PROXY_PORT || 3002;
-  const server = app.listen(proxyPort, () => {
-    console.log(`Proxy server listening on port ${proxyPort}`);
+  const server = app.listen(3002, () => {
+    console.log("Proxy server listening on port 3002");
   });
 
   return server;
@@ -376,5 +375,155 @@ export async function loadExistingContainers() {
     console.log(`${deployments.length} mevcut deployment yüklendi`);
   } catch (error) {
     console.error("Mevcut container'ları yükleme hatası:", error);
+  }
+}
+
+// Tek bir deployment'ın Docker kaynaklarını temizle
+export async function cleanupDeploymentResources(deploymentId: string): Promise<void> {
+  try {
+    console.log(`Deployment kaynakları temizleniyor: ${deploymentId}`);
+    
+    // Deployment bilgilerini al
+    const deployment = await db.deployment.findUnique({
+      where: { id: deploymentId },
+      select: { 
+        id: true, 
+        containerId: true,
+        status: true
+      }
+    });
+
+    if (!deployment) {
+      console.log(`Deployment bulunamadı: ${deploymentId}`);
+      return;
+    }
+
+    // Container varsa durdur ve sil
+    if (deployment.containerId) {
+      try {
+        const container = docker.getContainer(deployment.containerId);
+        const containerInfo = await container.inspect();
+        
+        if (containerInfo.State.Running) {
+          console.log(`Container durduruluyor: ${deploymentId}`);
+          await container.stop({ t: 10 });
+        }
+        
+        await container.remove({ force: true });
+        console.log(`Container silindi: ${deploymentId}`);
+      } catch (error) {
+        if ((error as any).statusCode === 404) {
+          console.log(`Container zaten mevcut değil: ${deploymentId}`);
+        } else {
+          console.error(`Container silinemedi: ${deploymentId}`, error);
+        }
+      }
+    }
+
+    // Docker image'ı sil
+    try {
+      const imageName = `vercel-clone/${deploymentId}:latest`;
+      const image = docker.getImage(imageName);
+      await image.remove({ force: true });
+      console.log(`Image silindi: ${imageName}`);
+    } catch (error) {
+      if ((error as any).statusCode === 404) {
+        console.log(`Image zaten mevcut değil: ${deploymentId}`);
+      } else {
+        console.error(`Image silinemedi: ${deploymentId}`, error);
+      }
+    }
+
+    // Cache'den temizle
+    deploymentPorts.delete(deploymentId);
+    deploymentContainers.delete(deploymentId);
+
+    // Database'de durumu güncelle
+    await db.deployment.update({
+      where: { id: deploymentId },
+      data: {
+        status: "STOPPED",
+        containerId: null,
+        port: null
+      }
+    });
+
+    console.log(`Deployment kaynakları temizlendi: ${deploymentId}`);
+    
+  } catch (error) {
+    console.error(`Deployment kaynakları temizleme hatası: ${deploymentId}`, error);
+  }
+}
+
+// Proje silindiğinde tüm Docker kaynaklarını temizle
+export async function cleanupProjectResources(projectId: string): Promise<void> {
+  try {
+    console.log(`Proje kaynakları temizleniyor: ${projectId}`);
+    
+    // Projeye ait tüm deployment'ları bul
+    const deployments = await db.deployment.findMany({
+      where: { projectId },
+      select: { 
+        id: true, 
+        containerId: true,
+        status: true
+      }
+    });
+
+    console.log(`${deployments.length} deployment temizlenecek`);
+
+    // Her deployment için container ve image'ı temizle
+    for (const deployment of deployments) {
+      try {
+        // Container varsa durdur ve sil
+        if (deployment.containerId) {
+          try {
+            const container = docker.getContainer(deployment.containerId);
+            const containerInfo = await container.inspect();
+            
+            if (containerInfo.State.Running) {
+              console.log(`Container durduruluyor: ${deployment.id}`);
+              await container.stop({ t: 10 });
+            }
+            
+            await container.remove({ force: true });
+            console.log(`Container silindi: ${deployment.id}`);
+          } catch (error) {
+            if ((error as any).statusCode === 404) {
+              console.log(`Container zaten mevcut değil: ${deployment.id}`);
+            } else {
+              console.error(`Container silinemedi: ${deployment.id}`, error);
+            }
+          }
+        }
+
+        // Docker image'ı sil
+        try {
+          const imageName = `vercel-clone/${deployment.id}:latest`;
+          const image = docker.getImage(imageName);
+          await image.remove({ force: true });
+          console.log(`Image silindi: ${imageName}`);
+        } catch (error) {
+          if ((error as any).statusCode === 404) {
+            console.log(`Image zaten mevcut değil: ${deployment.id}`);
+          } else {
+            console.error(`Image silinemedi: ${deployment.id}`, error);
+          }
+        }
+
+        // Cache'den temizle
+        deploymentPorts.delete(deployment.id);
+        deploymentContainers.delete(deployment.id);
+        
+      } catch (error) {
+        console.error(`Deployment temizlenemedi: ${deployment.id}`, error);
+      }
+    }
+
+    console.log(`Proje kaynakları temizlendi: ${projectId}`);
+    
+  } catch (error) {
+    console.error(`Proje kaynakları temizleme hatası: ${projectId}`, error);
+    // Hata olsa bile devam et, proje silme işlemini engellemeyiz
   }
 } 

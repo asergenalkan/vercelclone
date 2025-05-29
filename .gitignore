@@ -3,7 +3,12 @@
 # dependencies
 /node_modules
 /.pnp
-.pnp.js
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
 # testing
 /coverage
@@ -23,12 +28,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
-# local env files
-.env*.local
-.env
-.env.production
-.env.development
+# env files (can opt-in for committing if needed)
+.env*
 
 # vercel
 .vercel
@@ -37,42 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma
-prisma/migrations/
+/src/generated/prisma
 
-# builds directory
+# vercel clone specific
 /builds/
-/tmp/
-
-# logs
-*.log
-logs/
-
-# docker
-docker-compose.override.yml
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# PM2
-ecosystem.config.js
-
-# Backup files
-*.backup
-*.bak
-
-# SSL certificates
-*.pem
-*.key
-*.crt
-*.csr
-
-# Redis dump
-dump.rdb

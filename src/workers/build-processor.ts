@@ -1,5 +1,6 @@
 import { buildQueue } from "@/lib/queue/build-queue";
 import { BuildWorker } from "@/lib/build/build-worker";
+import { disconnectWorkerSocket } from "@/lib/socket/socket-client";
 
 // Build worker instance
 const buildWorker = new BuildWorker();
@@ -37,12 +38,14 @@ buildQueue.on('completed', (job, result) => {
 process.on("SIGTERM", async () => {
   console.log("SIGTERM sinyali alındı, worker kapatılıyor...");
   await buildQueue.close();
+  disconnectWorkerSocket();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   console.log("SIGINT sinyali alındı, worker kapatılıyor...");
   await buildQueue.close();
+  disconnectWorkerSocket();
   process.exit(0);
 });
 

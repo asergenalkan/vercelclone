@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
+import { cleanupProjectResources } from "@/lib/deployment-service";
 
 const projectUpdateSchema = z.object({
   name: z.string().min(2, { message: "Proje adı en az 2 karakter olmalıdır" }).optional(),
@@ -159,6 +160,10 @@ export async function DELETE(
       );
     }
 
+    // Docker container ve image'larını temizle
+    console.log(`Proje Docker kaynakları temizleniyor: ${projectId}`);
+    await cleanupProjectResources(projectId);
+
     // Projeyi ve ilişkili kayıtları sil
     await db.project.delete({
       where: {
@@ -167,7 +172,7 @@ export async function DELETE(
     });
 
     return NextResponse.json({
-      message: "Proje başarıyla silindi",
+      message: "Proje ve ilgili tüm kaynaklar başarıyla silindi",
     });
   } catch (error) {
     console.error("[PROJE_SİLME_HATASI]", error);

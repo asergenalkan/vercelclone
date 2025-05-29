@@ -7,7 +7,7 @@
 - **CPU**: 4 vCPU
 - **RAM**: 8GB (16GB önerilir)
 - **Disk**: 100GB SSD
-- **Network**: Açık portlar (80, 443, 3000, 3002, 3003)
+- **Network**: Açık portlar (80, 443, 3001, 3002, 3003)
 
 ## 📋 Kurulum Adımları
 
@@ -50,8 +50,6 @@ docker --version
 ```bash
 # NodeSource repository'sini ekleyin
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-
 
 # Node.js'i yükleyin
 apt install -y nodejs
@@ -185,12 +183,12 @@ module.exports = {
   apps: [
     {
       name: 'vercelclone-web',
-      script: 'node',
-      args: '.next/standalone/server.js',
+      script: 'npm',
+      args: 'start',
       cwd: '/var/www/vercelclone',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3001
       }
     },
     {
@@ -263,10 +261,10 @@ nano /etc/nginx/sites-available/vercelclone
 # Ana uygulama için
 server {
     listen 80;
-    server_name pixepix.com www.pixepix.com;
+    server_name yourdomain.com www.yourdomain.com;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -307,9 +305,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
-
-ssl_certificate /etc/letsencrypt/live/pixepix.com/fullchain.pem;
-ssl_certificate_key /etc/letsencrypt/live/pixepix.com/privkey.pem;
 ```
 
 ```bash
@@ -360,7 +355,7 @@ apt install -y ufw
 ufw allow 22/tcp    # SSH
 ufw allow 80/tcp    # HTTP
 ufw allow 443/tcp   # HTTPS
-ufw allow 3000/tcp  # Next.js (isteğe bağlı, Nginx kullanıyorsanız gerek yok)
+ufw allow 3001/tcp  # Next.js (isteğe bağlı, Nginx kullanıyorsanız gerek yok)
 ufw allow 3002/tcp  # Proxy (isteğe bağlı)
 ufw allow 3003/tcp  # Socket.io (isteğe bağlı)
 
@@ -497,14 +492,14 @@ gzip_disable "MSIE [1-6]\.";
 // ecosystem.config.js güncelleme
 {
   name: 'vercelclone-web',
-  script: 'node',
-  args: '.next/standalone/server.js',
+  script: 'npm',
+  args: 'start',
   cwd: '/var/www/vercelclone',
   instances: 'max', // CPU çekirdek sayısı kadar instance
   exec_mode: 'cluster',
   env: {
     NODE_ENV: 'production',
-    PORT: 3000
+    PORT: 3001
   }
 }
 ```
